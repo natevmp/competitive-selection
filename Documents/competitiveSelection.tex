@@ -1,0 +1,185 @@
+\documentclass[pdftex,12pt,a4paper]{scrartcl}
+
+\usepackage[english]{babel}
+\usepackage{physics}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{nicefrac}
+% \usepackage{graphicx}
+% \graphicspath{ 
+%     {../../Figures/report_22-05-04/}
+%     {../../Figures/report_22-05-11/}
+% }
+
+\title{Fixed population size decreases clonal selective advantage over time}
+\author{}
+
+\begin{document}
+ 
+The effective selective advantage of a clone within a population is well-described by the drift term of the birth-death process' diffusion approximated SDE. Typically one defines selection through an altered growth rate $\rho(1+s)$ with $\rho$ the wildtype growth rate and $s$ parameterizing the strength of selection. One finds the drift term of the SDE from the stochastic birth-death process by subtracting the probability of decrease of the clone size in an infinitesimal timestep from the probability of an increase. In a population of fixed size this is 
+\begin{equation}
+    \dd{x} = \mathbb{P}\qty{\text{increase in }\dd{t}} - \mathbb{P}\qty{\text{decrease in }\dd{t}}
+\end{equation}
+For the Wright-Fisher (WF) process -- which describes competitive dyamics within a population of fixed size -- with positive selection ($s>0$) this becomes
+\begin{equation}
+    \dd{x} = \rho s \, x(1-x) \dd{t}
+\end{equation}
+which equates to a logistic growth with rate $\gamma = \rho s$. It can be shown that we obtain the same deterministic dynamics if we consider a two-type linear birth-death process where the total birth rate $\mathcal{A}$ in the population is the same as the total death rate $\mathcal{B}$. If we consider a system of $V$ alleles with respective sizes $X_i$ (with $i \in 0,\dots,V-1$ and $\sum_i X_i = N$) and birth and death rates $\alpha_i$ and $\beta_i$, the total rates are given by
+\begin{align*}
+    &\begin{aligned}
+        \mathcal{A} &= \sum_i \alpha_i X_i \\
+        \mathcal{B} &= \sum_i \beta_i X_i
+    \end{aligned}
+\end{align*}
+
+
+\section{Positive selection}
+Defining selection through an increased birth rate, variant $i$ has (per cell) birth and death rates
+\begin{equation}
+\begin{aligned}
+    \alpha_i &= \alpha(1+s_i) \\
+    \beta_i &= \alpha \frac{\sum_j (1+s_j)X_j}{N}
+\end{aligned}
+\end{equation}
+where we have used that $\beta_i = \mathcal{B} / N$ and $\mathcal{B} = \mathcal{A}$. The drift term of the birth-death process is then given by
+\begin{align*}
+    \dv{X_i}{t} &= \alpha_i X_i - \beta_i X_i \\
+    &= \alpha(1+s_i) X_i - \alpha \frac{\sum_j (1+s_j)X_j}{N} X_i
+\end{align*}
+If we for simplicity assume $s_i = s \, \forall i \neq 0$, ($s_0 = 0$ describing wildtype cells), then we can easily split contributions from wildtype cells and other variants:
+\begin{equation}
+    \dv{X_i}{t} = \alpha(1+s)X_i - \qty( \alpha(1+s) \qty[ \frac{X_i}{N} + \frac{\sum_{k\neq i}X_k}{N} ] + \alpha \qty[ 1- \qty( \frac{X_i}{N} + \frac{\sum_{k\neq i} X_k}{N} ) ] )X_i
+\end{equation}
+which after simplification and change of variables to $x_i = X_i/N$ becomes
+\begin{equation}
+    \dd{x_i} = \alpha s x_i \qty( 1 - x_i - \sum_{j \neq i} x_j ) \dd{t} + \sqrt{ \frac{\alpha}{N} \qty( 2 + s \qty[1+ \sum_j x_j] ) x_i } \dd{W_t}
+\end{equation}
+or, allowing $s$ to vary across variants:
+\begin{equation}
+    \dd{x_i} = \alpha x_i \qty( s_i - \sum_{j>0} s_j x_j ) \dd{t} + \sqrt{ \frac{\alpha}{N} \qty( 2 + s_i + \sum_{j>0} s_j x_j ) x_i } \dd{W_t}
+\end{equation}
+The sum over all variants effectively turns this into a set of coupled differential equations:
+\begin{equation}
+\left\lbrace
+\begin{aligned}
+    \dd{x_1} &= \alpha s x_1 \qty( 1 - \sum_{j} x_j ) \dd{t} + \sigma(x_1) \dd{W_t} \\
+    \dd{x_2} &= \alpha s x_2 \qty( 1 - \sum_{j} x_j ) \dd{t} + \sigma(x_2) \dd{W_t} \\
+    &\vdots \\
+    \dd{x_{V-1}} &= \alpha s x_{V-1} \qty( 1 - \sum_{j} x_j ) \dd{t} + \sigma(x_{V-1}) \dd{W_t} \\
+\end{aligned}
+\right.
+\end{equation}
+However, the tricky part is that the number of variants $V$ changes over time, according to the stochastic arrival of new variants through mutation as well as the loss of variants due to stochastic extinction. We can however consider a expected value picture, in which we drop the noise terms and assume (survival-conditioned) variants arise linearly from a Poisson process. To this end we move to a continuous picture of variants $x_i(t) \rightarrow x(v,t)$, which allows us to write the system of DE's as a single partial differential equation:
+\begin{equation}
+    \pdv{x(v,t)}{t} = \alpha s \, x(v,t) \qty( 1 - \int_V x(v,t) \, \partial v )
+\end{equation}
+Because new variants arise at size $1/n$ at rate $\mu t$, we have the boundary conditions
+\begin{align}
+    x( 0, 0 ) &= 1/n \\
+    x(\mu t, t) &= 1/n
+\end{align}
+Furthermore, because at time $t$ there are only $\mu t$ existing variants, the integral boundaries can be written as $\int_0^{\mu t} x(v,t) \dd{v}$.
+
+
+\section{Maximum Likelihood estimation of logistic growth curves}
+
+Denote $f(t, \beta)$ the logistic growth function bounded between 0 and 0.5, taken at time $t$ with parameter set $\beta = \qty{ t_0, n_0, \gamma }$.:
+\begin{equation}
+f(t,\beta) = \frac{0.5}{1+\frac{0.5-n_0}{n_0}e^{-\gamma (t-t_0)}}
+\end{equation}
+The probability of measuring $j$ counts of a variant under $f(t, \beta)$ with a coverage $k$ is given by the binomial distribution:
+\begin{equation}
+P(j \vert k,\beta) = {k \choose j} f(t,\beta)^{j} \left[ 1-f(t,\beta) \right]^{(K-j)}
+\end{equation}
+
+Denote $V = \qty{v_{i}}$ and $K = \qty{k_i}$ as respectively the sets of measured variant calls and coverages obtained at times $\qty{t_i}$. The probability of obtaining the sample set $V$ under a model $\beta$ is thus given by
+\begin{equation}
+\mathcal{L}(\beta \vert V, K) = \prod_{i} P(v_i \vert k_i, \beta),
+\end{equation} the likelihood of the measurement given the model parameterized by $\beta$. In order to obtain the best fitting set of parameters $\beta$ we thus simply maximize $\mathcal{L}(\beta \vert V, K)$.
+
+
+\section{Competition-adjusted growth curve}
+
+The deterministic term of the growth function described by the full model
+\begin{equation}
+    \dv{x_i}{t} = \alpha x_i \qty( s_i - s_i x_i - \sum_{j \neq i} s_j x_j )
+\end{equation}
+cannot easily be used as the expected growth, as the dependence on other existing variants through the summation (the population-wide average fitness) keeps stochasticity in the expression. Let us as a simplification then assume this average fitness changes slowly, so that for a short observation period we might approximate it as a constant:
+\begin{equation}
+    \sum_{j \neq i} s_j x_j \approx z
+\end{equation}
+Then the above DE can be solved as 
+\begin{equation}
+    \frac{0.5-\nicefrac{z}{s}}{1 +  \frac{0.5-x_0-\nicefrac{z}{s}}{x_0} \,  e^{- \qty(s - 2z) (t-t_0) }}
+\end{equation}
+
+
+\section{Solving the growth curve exactly}
+\subsection{Fixed fitness values}
+Taking only the deterministic part of the growth curve, we may write for a variant that originated at time $u$ and is measured at time $t$:
+\begin{equation}
+\left\lbrace
+\begin{aligned}
+    &\dv{x(t,u)}{t} = \alpha s \, x(t,u)\qty[1 - y(t)] \\
+    &y(t) = \int_0^t \mu \qty[1-y(u)] \, x(t,u) \dd{u}
+\end{aligned}
+\right.
+\end{equation}
+where we have written the sum over all existing variants at $t$ as an integral over the past times (bottom equation). Taking the derivative in time of the second expression we obtain:
+\begin{align*}
+    \dv{y(t)}{t} &= \int_0^t \mu \qty[1-y(u)] \dv{x(t,u)}{t} \dd{u} + \mu \qty[1-y(t)] \frac{{x(t+\dd{t},t)}}{\dd{t}} \\
+    &=  \alpha s \qty[1 - y(t)] \int_0^t \mu \qty[1-y(u)] x(t,u) \dd{u} + \qty[1-y(t)] \frac{\mu}{N}
+\end{align*}
+In the second expression we identify the integral as $y(t)$, so that we may rewrite our system as
+\begin{equation}
+    \left\lbrace
+    \begin{aligned}
+        &\dv{x(t,u)}{t} = \alpha s \, x(t,u)\qty[1 - y(t)] \\
+        &\dv{y(t)}{t} = \qty( \alpha s y(t) + \frac{\mu}{N} )\qty[1-y(t)]
+    \end{aligned}
+    \right.
+\end{equation}
+The expression for $y(t)$ is closed, and has with initial condition $y(0)=0$ the solution
+\begin{equation}
+    y(t) = 1-\frac{1 +\frac{\mu}{\alpha s N} }{1 + \frac{\mu}{\alpha s N}  e^{\left(\alpha s +\frac{\mu}{N}\right) t}}
+\end{equation}
+Inserting this into the expression for $x(t,u)$ with initial condition $x(u,u)=1/N$ gives
+\begin{equation}
+    x(t,u) = \frac{\frac{1}{N} + \frac{\alpha s}{\mu}e^{-\qty(\alpha s +\frac{\mu}{N})u}}{1 + \frac{\alpha s}{\mu} N e^{-\qty(\alpha s  +\frac{\mu}{N})t}}
+\end{equation}
+
+\subsection{Individual fitness in average fitness landscape}
+Consider a variant with fitness $s$ arriving in a system with average fitness $s$. We investigate approximating this as the system
+\begin{equation}
+    \left\lbrace
+    \begin{aligned}
+        &\dv{x(t,u)}{t} = \alpha s \, x(t,u)\qty[1 - \frac{a}{s}y(t)] \\
+        &\dv{y(t)}{t} = \qty( \alpha a y(t) + \frac{\mu}{N} )\qty[1-y(t)]
+    \end{aligned}
+    \right.
+\end{equation}
+
+\subsection{Fully stochastic fitness}
+Let us now generalize to the case where a clone may have any positive fitness $s \in \mathbb{R}$, drawn from some distribution with pdf $p(s)$. We then have
+\begin{equation}
+    \left\lbrace
+    \begin{aligned}
+        &\dv{x(t,u,s)}{t} = \alpha s \, x(t,u,s)\qty[1 - \frac{z(t)}{s}] \\
+        &z(t) = \int_0^t \dd{u} \tilde{\mu}(u) \int_0^\infty \dd{s} p(s) s \, x(t,u,s)
+    \end{aligned}
+    \right.
+\end{equation}
+Again deriving the second expression with respect to $t$, and denoting $\int_0^\infty \dd{s} p(s) f(s) = \ev{f(s)}$ we obtain
+\begin{equation}
+    \left\lbrace
+    \begin{aligned}
+        &\dv{x(t,u,s)}{t} = \alpha s \, x(t,u,s)\qty[1 - \frac{z(t)}{s}] \\
+        &\dv{z(t)}{t} = \alpha \int_0^t \dd{u} \tilde{\mu}(u) \qty[ \ev{s^2 x(t,u,s)} - \ev{x(t,u,s) z(t) }] + \frac{\tilde{\mu}(t)}{N}
+    \end{aligned}
+    \right.
+\end{equation}
+We can unfortunately no longer perform the same `trick' as before, since the expression for $z(t) = \int_0^t \dd{u} \tilde{\mu}(u) \ev{s x(t,u,s)}$ does not appear directly in the expression above.
+
+
+
+\end{document}
