@@ -80,7 +80,7 @@ sizeDistDF.n_f = n_f
 
 filename = "variantSizeDist"*
     "_t"*string(solEns[1].t[tInd])*
-    "_bins"*string(bins)*
+    "_bins"*string(bins)*``
     ".csv"
 
 sizeDistDF |> CSV.write(filename)

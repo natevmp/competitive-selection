@@ -8,6 +8,8 @@
 #$ -o ~/CompetitiveSelection
 #$ -m beas
 
+PARAMS="./params/paramsChisquare6070.jl"
+
 export PATH="$PATH:~/julia-1.8.5/bin"
 export JULIA_NUM_THREADS=10
 
@@ -23,9 +25,10 @@ rsync -rt $SRCDIR $TMPDIR/
 
 cd $TMPDIR
 
+echo $PARAMS
 echo "starting julia script..."
 # julia HPC/addPackages.jl
-julia HPC/sizeDistABC.jl "./params/paramsChisquare6575.jl"
+julia HPC/sizeDistABC.jl $PARAMS
 
 mv abcResult*.jld2 $DATADIR/
 

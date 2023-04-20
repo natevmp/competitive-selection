@@ -22,7 +22,7 @@ const ctrlParams = Dict(
     :params => modelParams,
     :cumulativeDist => true,
     :metric => "kolmogorov-smirnov",
-    :threshold => [0.008, 0.003, 0.001],
+    :threshold => [0.008, 0.003, 0.0015],
     :nParticles => 500,
-    :maxIter => 20000,
+    :maxIter => 30000,
 )

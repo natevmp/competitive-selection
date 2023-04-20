@@ -5,11 +5,16 @@ using CairoMakie
 ##
 
 # abcRes, ctrlParams = load("./Data/SimResults/abcResult_chisquare_particles500.jld2", "abcRes", "ctrlParams")
-abcRes, ctrlParams = load("./Data/SimResults/abcResult_chisquare_ages6575_particles500.jld2", "abcRes", "ctrlParams")
+# abcRes, ctrlParams = load("./Data/SimResults/abcResult_chisquare_ages6575_particles500.jld2", "abcRes", "ctrlParams")
+# abcRes, ctrlParams = load("./Data/SimResults/abcResult_chisquare_ages6070_particles500.jld2", "abcRes", "ctrlParams")
 # abcRes, ctrlParams = load("./Data/SimResults/abcResult_kolmogorov-smirnov_ages7080_cumulative_particles500.jld2", "abcRes", "ctrlParams")
+# abcRes, ctrlParams = load("./Data/SimResults/abcResult_kolmogorov-smirnov_ages6575_cumulative_particles500.jld2", "abcRes", "ctrlParams")
+abcRes, ctrlParams = load("./Data/SimResults/abcResult_kolmogorov-smirnov_ages6070_cumulative_particles500.jld2", "abcRes", "ctrlParams")
 
 ##
 
+abcRes.n_accepted
+##
 ctrlParams[:metric]
 ctrlParams[:tBounds]
 

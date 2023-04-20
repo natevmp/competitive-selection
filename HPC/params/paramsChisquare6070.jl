@@ -22,7 +22,7 @@ const ctrlParams = Dict(
     :params => modelParams,
     :cumulativeDist => false,
     :metric => "chisquare",
-    :threshold => [0.01, 0.004, 0.001],
+    :threshold => [0.01, 0.004, 0.0015],
     :nParticles => 500,
-    :maxIter => 20000,
+    :maxIter => 30000,
 )
