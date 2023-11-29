@@ -15,10 +15,16 @@ mutable struct MaxAdjustedLogisticModel <: ModelShape
     xF::Float64
     MaxAdjustedLogisticModel() = new(0.1, 1., 0.1, 0.25)
 end
+mutable struct ConstantModel <: ModelShape
+    γ::Float64
+    x::Float64
+    ConstantModel() = new(0., 0.1)
+end
 
 abstract type ExpansionType end
 struct PositiveExpansion <: ExpansionType end
 struct NegativeExpansion <: ExpansionType end
+struct NullExpansion <: ExpansionType end
 
 struct ModelFit{S<:ModelShape, E<:ExpansionType}
     shape::S
@@ -57,11 +63,17 @@ function setInitialParamsMLE!(model::ModelFit{MaxAdjustedLogisticModel, Negative
     model.shape.xF = 0.4
     return [model.shape.t0, model.shape.γ, model.shape.x0, model.shape.xF]
 end
+# b0[1]=t0, b0[2]=γ, b0[3]=x0, b0[4]=xF
+function setInitialParamsMLE!(model::ModelFit{ConstantModel, NullExpansion}, _t, vaf_t, Nf)
+    model.shape.γ = 0
+    model.shape.x = vaf_t[1]
+    return [model.shape.x,]
+end
 
 # ----------------------- Box constraints for MLE ------------------------
 function boundsMLE(model::ModelFit{LogisticModel, PositiveExpansion}, _t, vaf_t)
     # b0[1]=t0, b0[2]=γ
-    ([-10, 0], 
+    ([-100, 0],
     [_t[1], 5])
 end
 
@@ -75,6 +87,12 @@ function boundsMLE(model::ModelFit{MaxAdjustedLogisticModel, PositiveExpansion},
     # b0[1]=t0, b0[2]=γ, b0[3]=xF
     ([0, 0, 1E-3],
     [_t[1], 2, 0.49])
+end
+
+function boundsMLE(model::ModelFit{ConstantModel, NullExpansion}, _t, vaf_t)
+    # b0[1]=x
+    ([0,],
+    [0.49,])
 end
 
 # function boundsMLE(model::ModelFit{MaxAdjustedLogisticModel, NegativeExpansion}, _t, vaf_t)
@@ -108,7 +126,11 @@ end
 
 function fLogModel(t,β,model::ModelFit{MaxAdjustedLogisticModel, NegativeExpansion})
     fLogistic(t, β[1], β[2], β[3], β[4])
-end 
+end
+
+function fLogModel(t,β,model::ModelFit{ConstantModel, NullExpansion})
+    β[1]
+end
 
 # --------------------- parameter adjustment methods ---------------------------
 function addFitParams!(model::ModelFit{LogisticModel, PositiveExpansion}, _β)
@@ -131,4 +153,61 @@ function addFitParams!(model::ModelFit{MaxAdjustedLogisticModel, NegativeExpansi
     model.shape.x0 = _β[3]
     model.shape.xF = _β[4]
 end
+function addFitParams!(model::ModelFit{ConstantModel, NullExpansion}, _β)
+    model.shape.x = _β[1]
+end
 
+# -------------------------- model names ---------------------------
+function modelName(model::ModelFit)
+    if typeof(model)==ModelFit{LogisticModel, PositiveExpansion}
+        return "positive logistic"
+    end
+    if typeof(model)==ModelFit{LogisticModel, NegativeExpansion}
+        return "negative logistic"
+    end
+    if typeof(model)==ModelFit{MaxAdjustedLogisticModel, PositiveExpansion}
+        return "positive logistic"
+    end
+    if typeof(model)==ModelFit{MaxAdjustedLogisticModel, NegativeExpansion}
+        return "negative logistic"
+    end
+    if typeof(model)==ModelFit{ConstantModel, NullExpansion}
+        return "constant"
+    end
+end
+
+function modelShapeFromName(model::String)
+    if model=="positive logistic"
+        return LogisticModel
+    end
+    if model=="negative logistic"
+        return LogisticModel
+    end
+    if model=="constant"
+        return ConstantModel
+    end
+end
+
+function modelTypeFromName(model::String)
+    if model=="positive logistic"
+        return ModelFit{LogisticModel, PositiveExpansion}
+    end
+    if model=="negative logistic"
+        return ModelFit{LogisticModel, NegativeExpansion}
+    end
+    if model=="constant"
+        return ModelFit{ConstantModel, NullExpansion}
+    end
+end
+
+function createModelFromName(model::String)
+    if model=="positive logistic"
+        return ModelFit(LogisticModel(), PositiveExpansion())
+    end
+    if model=="negative logistic"
+        return ModelFit(LogisticModel(), NegativeExpansion())
+    end
+    if model=="constant"
+        return ModelFit(ConstantModel(), NullExpansion())
+    end
+end

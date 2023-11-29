@@ -24,6 +24,7 @@ docs/site/
 Manifest.toml
 
 Figures/
-*.code-workspace
 Data/
 Documents/
+HPC/
+*.code-workspace

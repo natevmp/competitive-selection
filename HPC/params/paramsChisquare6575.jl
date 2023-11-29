@@ -24,5 +24,5 @@ const ctrlParams = Dict(
     :metric => "chisquare",
     :threshold => [0.01, 0.004, 0.001],
     :nParticles => 500,
-    :maxIter => 20000,
+    :maxIter => 30000,
 )

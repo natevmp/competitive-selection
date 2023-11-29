@@ -23,7 +23,7 @@ t_sid = [t for t in Iterators.flatten([dfVidCur[:_t] for dfVidCur in eachrow(dfV
 xMask_sid = x_sid.>0
 
 ## ---------------- ABC params --------------
-tBounds = (65,75)
+tBounds = (70,80)
 fixedParams = Dict{Symbol,Union{Int64,Float64,String}}(
     :T => (tBounds[1]+tBounds[2])/2 |> Int,
     :N => 200000,
@@ -78,7 +78,7 @@ nCumData_f = [sum(nData_f[1:i]) for i in eachindex(nData_f)]
 ##
 
 # @time nSim_f = vec(ABCSims.modelSim([0.114, 0.018, 2], ctrlParams))
-@time nSim_f = vec(ABCSims.modelSim([0.114, 0.025, 2], ctrlParams))
+@time nSim_f = vec(ABCSims.modelSim([0.114, 0.022, 3], ctrlParams))
 nSimCum_f = [sum(nSim_f[1:i]) for i in eachindex(nSim_f)]
 
 ##
@@ -104,7 +104,7 @@ using Distances
 euclidean(mean(nCumData_f), mean(nSim_f))
 evaluate(Distances.chisq_dist, nCumData_f, nSim_f)
 evaluate(Distances.chisq_dist, nData_f, nSim_f)
-ABCSims.kolmogorovSmirnovDist(nCumData_f, nSim_f)
+ABCSims.kolmogorovSmirnovDist(nCumData_f, nSimCum_f)
 ##
 
 sum(nCumData_f)
@@ -126,6 +126,7 @@ fixedParams = Dict{Symbol,Union{Int64,Float64,String}}(
     :T => (tBounds[1]+tBounds[2])/2 |> Int,
     :N => 200000,
     :α => 1,
+    :s => 0.15,
     :sType => "gamma",
     :q => 0,
 )
@@ -142,7 +143,7 @@ ctrlParams = Dict{}(
     :params => fixedParams,
     :cumulativeDist => false,
     :metric => "chisquare",
-    :threshold => [0.05, 0.01, 0.004],
+    :threshold => [0.5, 0.1, 0.1],
     :nParticles => 2,
     :maxIter => 4,
 )
@@ -158,7 +159,7 @@ _fEdges, nData_f = AnalysisTools.sizeDistDens(
 nCumData_f = [sum(nData_f[1:i]) for i in eachindex(nData_f)]
 
 ## ----- ABC --------
-@time abcRes = ABCSims.runABC(nCumData_f, ctrlParams)
+@time abcRes = ABCSims.runABC(nData_f, ctrlParams)
 
 
 ##

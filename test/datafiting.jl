@@ -118,8 +118,8 @@ fileName = "fitnessFits_logAdj.png"
 
 
 ## --------- mean growth rates over time ----------
-bins = 20
-_tBin, λAv_tBin = DataStructuring.meanVarFitParamTime([dfVidCur[:_t][1] for dfVidCur in eachrow(dfVid[_λMask,:])], dfVid[_λMask, :γ]; bins)
+bins = 28
+_tBin, λAv_tBin = DataStructuring.meanVariantParamTime([dfVidCur[:_t][1] for dfVidCur in eachrow(dfVid[_λMask,:])], dfVid[_λMask, :γ]; bins)
 fig3a = Figure()
 Axis(
     fig3a[1,1],
@@ -139,7 +139,7 @@ mean(dfVid[_λMask,:γ])
 nBins = 6:30
 corS_nBins = Vector{Float64}(undef, length(nBins))
 for (i,bins) in enumerate(nBins)
-    _tBin, λAv_tBin = DataStructuring.meanVarFitParamTime([dfVidCur[:_t][1] for dfVidCur in eachrow(dfVid[_λMask,:])], dfVid[_λMask, :γ]; bins)
+    _tBin, λAv_tBin = DataStructuring.meanVariantParamTime([dfVidCur[:_t][1] for dfVidCur in eachrow(dfVid[_λMask,:])], dfVid[_λMask, :γ]; bins)
     corS_nBins[i] = corspearman(_tBin[.!isnan.(λAv_tBin)], λAv_tBin[.!isnan.(λAv_tBin)])
 end
 fig3 = Figure(
@@ -344,28 +344,31 @@ end
 
 
 ## --------------- Size distribution ------------------
-include("../src/dataStructuring.jl")
-using .DataStructuring
+# include("../src/dataStructuring.jl")
+# using .DataStructuring
 tThresh = 90
 x_sid = [x for x in Iterators.flatten([dfVidCur[:vaf_t] for dfVidCur in eachrow(dfVid)])]
 t_sid = [t for t in Iterators.flatten([dfVidCur[:_t] for dfVidCur in eachrow(dfVid)])]
 tMask_sid = t_sid .< tThresh
 xMask_sid = x_sid .> 0
 xtMask_sid = (t_sid.<tThresh) .& (x_sid.>0)
-_T, _f, densV_f_T = DataStructuring.sizeDistBinTime(t_sid[xtMask_sid], x_sid[xtMask_sid]; tBins=7, fBins=50)
+_T, _f, densV_f_T = DataStructuring.sizeDistBinTime(t_sid[xtMask_sid], x_sid[xtMask_sid]; tBins=4, fBins=50)
 
 ##
-fig = Figure()
+fig = Figure(
+    resolution=(800,600),
+    fontsize=22,
+)
 Axis(
     fig[1,1],
     xscale=log10,
     yscale=log10,
-    xlabel="size",
-    ylabel="density"
+    xlabel="size of variant",
+    ylabel="density of variants"
 )
 ylims!(0.00001, 0.008)
 for tInd in eachindex(densV_f_T)
-    lines!(_f, densV_f_T[tInd], label="t = "*string(round(_T[tInd],digits=2)))
+    scatterlines!(_f, densV_f_T[tInd], label="t = "*string(round(_T[tInd],digits=2)))
 end
 axislegend()
 display(fig)

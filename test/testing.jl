@@ -22,13 +22,14 @@ paramsPop = Dict(
     # :μ => 0,
     :sType => "gamma",
     # :sType => "free",
-    :q => 1,    #double hit probability: 0 = no double hits; 1 = double hits succeed with probability 1.
+    :q => 0,    #double hit probability: 0 = no double hits; 1 = double hits succeed with probability 1.
 )
 runs = 5000
 
 ##
 # @time sol = CompetitiveSelection.evolvePop(paramsPop)
-@time solEns = CompetitiveSelection.evolvePop(paramsPop, runs=runs)
+@time solEns, simArgs = CompetitiveSelection.evolvePopSim(paramsPop, runs=runs);
+4+4
 
 ##
 measureTime=50
@@ -253,3 +254,28 @@ lines(histData.weights)
 ##
 
 hist(x_T_Vid[60][x_T_Vid[90] .> 0.02], normalization=:pdf, bins=25)
+
+##
+
+testf(a,b,c) = (a,b)
+
+a,b,_ = testf(1,2,3)
+
+##
+
+include("../src/competitiveSelection.jl")
+using .CompetitiveSelection
+
+
+##
+# @time nVarsAv_t = CompetitiveSelection.variantsAboveThreshold(solEns, 0.01; nSamples=500)
+@time nVarsAv_t = CompetitiveSelection.detectableVariantsSampled(solEns, 500, threshold=0.01)
+lines(nVarsAv_t)
+
+##
+
+particle = load("particleTest.jld2", "particle")
+
+propertynames(particle)
+particle.simResults[3]
+particle.paramSet

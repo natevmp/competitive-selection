@@ -1,80 +1,38 @@
 
-
-function doubleHitVariant!(vid::Integer, init_vid, s_vid, x_vid, q)
-    if q==0  # if q==0 we skip the double hit process
-        init_vid[vid] = true
-        return
-    end
-    if rand()>q # if double hit doesn't occur we break
-        init_vid[vid] = true
-        return
-    end
-    pRand = rand()
-    xTot = 0.
-    for (i,x) in enumerate(x_vid[init_vid])
-        xTot += x
-        if pRand<xTot
-            s_vid[vid] += s_vid[i] + s_vid[vid]*s_vid[i]
-            break
+function prepareSims(params, model, _trackerVariant::Union{Vector{U},Vector{Tuple{U,S}}}, runs) where {U,S<:Real}
+    T = params[:T]
+    μ = params[:μ]
+    simArgs = DataFrame()
+    simArgs.k = rand(Poisson(μ*T), runs)    # total number of variants arising
+    simArgs.t₀_vid = (k->(T*rand(k) |> sort!)).(simArgs[!,:k])
+    simArgs._trackerID = [Vector{Int}(undef,length(_trackerVariant)) for j in 1:runs]
+    for row in eachrow(simArgs)
+        for ts in _trackerVariant # `ts` is tuple (t0, s)
+            row.k += 1
+            push!(row.t₀_vid, ts[1])
+        end
+        sort!(row.t₀_vid)
+        for (i,ts) in enumerate(_trackerVariant)
+            row._trackerID[i] = findfirst(row.t₀_vid .== ts[1])
         end
     end
-    init_vid[vid] = true
-end
-
-
-function drift(model::Model, dx_vid, x_vid, (t0_vid, init_vid, α, s_vid, N), t)
-    sX = 0   # non-allocating sum
-    for i in eachindex(dx_vid)
-        t < t0_vid[i] && break
-        sX += x_vid[i]*s_vid[i]
-    end
-    for (i, x) in enumerate(x_vid)
-        t < t0_vid[i] && break
-        !init_vid[i] && doubleHitVariant!(i, init_vid, s_vid, x_vid, model.q)
-        if x<0
-            x_vid[i] = 0
-            dx_vid[i] = 0
-            continue
-        end
-        if x>1
-            x_vid[i] = 1
-            dx_vid[i] = 0
-            continue
-        end
-        dx_vid[i] = α*x*(s_vid[i] - sX)
-    end
-end
-
-function diffusion(model::Model, dx_vid, x_vid, (t0_vid, init_vid, α, s_vid, N), t)
-    sX = 0  # non-allocating sum
-    for i in eachindex(dx_vid)
-        t < t0_vid[i] && break
-        sX += x_vid[i]*s_vid[i]
-    end
-    for (i, x) in enumerate(x_vid)
-        t < t0_vid[i] && break
-        dx_vid[i] = (x>0 && x<1) ? √( α*(2 + s_vid[i] + sX)*x/N ) : 0
-    end
-end
-
-function drift(model::FreeFixedModel, dx_vid, x_vid, (t0_vid, init_vid, α, s_vid, N), t)
-    for (i, x) in enumerate(x_vid)
-        t < t0_vid[i] && break
-        !init_vid[id] && doubleHitVariant!(i, init_vid, s_vid, x_vid, model.q)
-        if x>0
-            dx_vid[i] = α*s_vid[i]*x*(1 - x)
-        else
-            x_vid[i] = 0
-            dx_vid[i] = 0
+    simArgs.s_vid = (k->selectionParamModel(model, k)).(simArgs[!,:k])
+    if haskey(params, :sMax)
+        for s_vid in simArgs.s_vid
+            maxS_vid = findall(s_vid.>params[:sMax])
+            s_vid[maxS_vid] .= params[:sMax]
         end
     end
-end
+    simArgs.init_vid = falses.(simArgs[!,:k])
+    simArgs.x₀_vid = zeros.(simArgs[!,:k])
+    simArgs.parentId_vid = zeros.(Int64, simArgs[!,:k])
 
-function diffusion(model::FreeFixedModel, dx_vid, x_vid, (t0_vid, init_vid, α, s_vid, N), t)
-    for (i, x) in enumerate(x_vid)
-        t < t0_vid[i] && break
-        dx_vid[i] = (x>0) ? √( α*(2+s_vid[i]*(1+x))*x/N ) : 0
+    length(_trackerVariant)<1 && (return simArgs)
+    eltype(_trackerVariant)==Tuple{Real} && (return simArgs)
+    for rowArgs in eachrow(simArgs)
+        rowArgs.s_vid[rowArgs._trackerID] .= [ts[2] for ts in _trackerVariant]
     end
+    return simArgs
 end
 
 function selectionParamModel(model::FixedSelectionModel, k::Int)
@@ -97,41 +55,88 @@ function selectionParamModel(model::GammaSelectionModel, k::Int)
     rand(Gamma(model.s^2/model.σ^2 , model.σ^2/model.s), k)
 end
 
-function prepareSims(params, model, trackerVariant, runs)
-    T = params[:T]
-    μ = params[:μ]
-    simArgs = DataFrame()
-    simArgs.k = rand(Poisson(μ*T), runs)
-    simArgs.t₀_vid = (k->(T*rand(k) |> sort!)).(simArgs[!,:k])
-    if !isnothing(trackerVariant)
-        simArgs.trackerID = Vector{Int}(undef, runs)
-        for row in eachrow(simArgs)
-            row.k += 1
-            push!(row.t₀_vid, trackerVariant[1])
-            sort!(row.t₀_vid)
-            row.trackerID = findfirst(row.t₀_vid .== trackerVariant[1])
-        end
-    end
-    simArgs.s_vid = (k->selectionParamModel(model, k)).(simArgs[!,:k])
-    simArgs.init_vid = falses.(simArgs[!,:k])
-    simArgs.x₀_vid = zeros.(simArgs[!,:k])
-
-    if isnothing(trackerVariant)
-        return simArgs
-    end
-    
-    length(trackerVariant)==1 && (return simArgs)
-
-    for rowArgs in eachrow(simArgs)
-        rowArgs.s_vid[rowArgs.trackerID] = trackerVariant[2]
-    end
-    println(simArgs[1, :s_vid])
-    println(simArgs[1,:s_vid][simArgs[1,:trackerID]])
-    println()
-    return simArgs
+function fitnessDoubleHit(sChild, sParent)
+    sParent + sChild + sChild*sParent
 end
 
-function evolvePopSim(params::Dict; runs::Int=1, trackerVariant::Union{Nothing, Real,Tuple{Real,Real}}=nothing, noDiffusion::Bool=false)
+"""
+    Sets the parent clone of a new variant, and optionally performs a double hit if `q>0`.
+"""
+function initiateVariant!(childId::Integer, init_vid, s_vid, x_vid, parentId_vid::Vector{Int64}, q; sMax::Real=Inf)
+    pRand = rand()  # random variable ∈(0,1) to select the parent
+    xTot = 0.
+    for (parentId,x) in enumerate(@view x_vid[init_vid])
+        xTot += x
+        if xTot<pRand continue end # continue if current ID is not parent
+        parentId_vid[childId] = parentId
+        if (q==0 || rand()>q) break end # break if double hit fails
+        s_vid[childId] = min(fitnessDoubleHit(s_vid[childId], s_vid[parentId]), sMax)
+        break
+    end
+    init_vid[childId] = true
+end
+
+function drift(model::Model, dx_vid, x_vid, (t0_vid, init_vid, α, s_vid, N, parentId_vid), t; sMax::Real=Inf)
+    sX = 0   # non-allocating sum
+    for i in eachindex(dx_vid)
+        t < t0_vid[i] && break
+        sX += x_vid[i]*s_vid[i]
+    end
+    for (i, x) in enumerate(x_vid)
+        t < t0_vid[i] && break # skip variant if not yet initiated
+        !init_vid[i] && initiateVariant!(i, init_vid, s_vid, x_vid, parentId_vid, model.q; sMax=sMax) # initiate variant if new
+        if x<0
+            x_vid[i] = 0
+            dx_vid[i] = 0
+            continue
+        end
+        if x>1
+            x_vid[i] = 1
+            dx_vid[i] = 0
+            continue
+        end
+        dx_vid[i] = α*x*(s_vid[i] - sX) # evolve variant
+    end
+end
+
+function diffusion(model::Model, dx_vid, x_vid, (t0_vid, init_vid, α, s_vid, N, parentId_vid), t)
+    sX = 0  # non-allocating sum
+    for i in eachindex(dx_vid)
+        t < t0_vid[i] && break
+        sX += x_vid[i]*s_vid[i]
+    end
+    for (i, x) in enumerate(x_vid)
+        t < t0_vid[i] && break
+        dx_vid[i] = (x>0 && x<1) ? √( α*(2 + s_vid[i] + sX)*x/N ) : 0
+    end
+end
+
+function drift(model::FreeFixedModel, dx_vid, x_vid, (t0_vid, init_vid, α, s_vid, N, parentId_vid), t; sMax::Real=Inf)
+    for (i, x) in enumerate(x_vid)
+        t < t0_vid[i] && break
+        !init_vid[id] && initiateVariant!(i, init_vid, s_vid, x_vid, parentId_vid, model.q)
+        if x>0
+            dx_vid[i] = α*s_vid[i]*x*(1 - x)
+        else
+            x_vid[i] = 0
+            dx_vid[i] = 0
+        end
+    end
+end
+
+function diffusion(model::FreeFixedModel, dx_vid, x_vid, (t0_vid, init_vid, α, s_vid, N, parentId_vid), t)
+    for (i, x) in enumerate(x_vid)
+        t < t0_vid[i] && break
+        dx_vid[i] = (x>0) ? √( α*(2+s_vid[i]*(1+x))*x/N ) : 0
+    end
+end
+
+"""
+    evolvePopSim()
+
+`_trackerVariant` is a vector containing clones to be tracked. The elements are either the birth times, or a tuple containing both birth time and fitness of the form `(t0, s)`.
+"""
+function evolvePopSim(params::Dict; runs::Int=1, _trackerVariant::Union{Vector{U},Vector{Tuple{U,S}}}=Vector{Float64}[], noDiffusion::Bool=false) where {U,S<:Real}
     model =
         if params[:sType]=="fixed"
             FixedSelectionModel(params[:s], params[:q])
@@ -146,10 +151,10 @@ function evolvePopSim(params::Dict; runs::Int=1, trackerVariant::Union{Nothing, 
         else
             println("error: selection model undefined.")
         end
-    evolvePopSim(params, model; runs, trackerVariant, noDiffusion)
+    evolvePopSim(params, model; runs, _trackerVariant, noDiffusion)
 end
 
-function evolvePopSim(params::Dict, model::Model; runs::Int=1, trackerVariant::Union{Nothing, Real,Tuple{Real,Real}}=nothing, noDiffusion::Bool=false)
+function evolvePopSim(params::Dict, model::Model; runs::Int=1, _trackerVariant::Union{Vector{U},Vector{Tuple{U,S}}}=Vector{Float64}[], noDiffusion::Bool=false) where {U,S<:Real}
     
     N = params[:N]
     α = params[:α]
@@ -157,15 +162,15 @@ function evolvePopSim(params::Dict, model::Model; runs::Int=1, trackerVariant::U
     T = params[:T]
     μ = params[:μ]
 
-    f!(dx_vid, x_vid, (t0_vid, init_vid, α, s, N), t) = 
-        drift(model, dx_vid, x_vid, (t0_vid, init_vid, α, s, N), t)
-    g!(dx_vid, x_vid, (t0_vid, init_vid, α, s, N), t) = begin
-        noDiffusion ? 0 : diffusion(model, dx_vid, x_vid, (t0_vid, init_vid, α, s, N), t)
+    f!(dx_vid, x_vid, (t0_vid, init_vid, α, s, N, parentId_vid), t) = 
+        drift(model, dx_vid, x_vid, (t0_vid, init_vid, α, s, N, parentId_vid), t; sMax=(haskey(params, :sMax) ? params[:sMax] : Inf))
+    g!(dx_vid, x_vid, (t0_vid, init_vid, α, s, N, parentId_vid), t) = begin
+        noDiffusion ? 0 : diffusion(model, dx_vid, x_vid, (t0_vid, init_vid, α, s, N, parentId_vid), t)
     end
 
     _t = range(0,T, length=T+1)
 
-    simArgs = prepareSims(params, model, trackerVariant, runs)
+    simArgs = prepareSims(params, model, _trackerVariant, runs)
     # t0Min = minimum([t_vid[1] for t_vid in simArgs[!,:t₀_vid]])
     # get allocation-free minimum, ingnoring empty arrays
     t0Min = 1.
@@ -189,14 +194,15 @@ function evolvePopSim(params::Dict, model::Model; runs::Int=1, trackerVariant::U
     callBackAddClone = DiscreteCallback(condition, affect!; save_positions=(false,false))
     callbacks = CallbackSet(callBackAddStops, callBackAddClone)
 
-    prob = SDEProblem(f!, g!, simArgs[1,:x₀_vid], (0.0, T), [simArgs[1,:t₀_vid], simArgs[1,:init_vid], α, simArgs[1,:s_vid], N])
+    prob = SDEProblem(f!, g!, simArgs[1,:x₀_vid], (0.0, T), [simArgs[1,:t₀_vid], simArgs[1,:init_vid], α, simArgs[1,:s_vid], N, simArgs[1,:parentId_vid]])
     # solver=SOSRI2
     # solver = SOSRA2
     # solver = SRA3
+    # solver = ImplicitEulerHeun
     solver = LambaEM    #fastest
     # solver = SKenCarp #fails
     function probFunc(prob, i, repeat)
-        remake(prob, u0=simArgs[i,:x₀_vid], p=[simArgs[i,:t₀_vid], simArgs[i,:init_vid], α, simArgs[i, :s_vid], N])
+        remake(prob, u0=simArgs[i,:x₀_vid], p=[simArgs[i,:t₀_vid], simArgs[i,:init_vid], α, simArgs[i, :s_vid], N, simArgs[i,:parentId_vid]])
     end
     ensembleProb = EnsembleProblem(prob, prob_func=probFunc)
     # return ensembleProb

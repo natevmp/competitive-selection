@@ -1,17 +1,17 @@
 #!/bin/bash
 #$ -pe smp 10 # Request CPU cores
 #$ -l h_vmem=2G
-#$ -l h_rt=16:0:0
+#$ -l h_rt=60:0:0
 #$ -wd ~/CompetitiveSelection
 #$ -j y
 #$ -N sizeDist
 #$ -o ~/CompetitiveSelection
 #$ -m beas
 
-PARAMS="./params/paramsChisquare6070.jl"
+PARAMS="./params/paramsChisquareSigmaFixed7076.jl"
 
 export PATH="$PATH:~/julia-1.8.5/bin"
-export JULIA_NUM_THREADS=10
+export JULIA_NUM_THREADS=${NSLOTS}
 
 SRCDIR=$HOME/CompetitiveSelection/
 DATADIR=$HOME/CompetitiveSelection/SimResults/

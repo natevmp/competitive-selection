@@ -381,3 +381,40 @@ tSingleSim = 1
 nParams=3
 20^nParams
 20^nParams * tSingleSim / 3600
+
+##
+
+using Distributions, Random, StatsBase
+
+struct StepUniform <: Sampleable{Univariate,Continuous}
+    edges::Vector{Float64}
+    counts::Vector{Int64}
+end
+
+dist = StepUniform([10,20,30,40,50,60],[4,40,26,15,0,0])
+function Base.rand(rng::AbstractRNG, d::StepUniform)
+    bin = StatsBase.sample(rng, range(1,length(d.counts)), Weights(d.counts))
+    sample = d.edges[bin] + (d.edges[bin+1]-d.edges[bin])*rand(rng)
+    return sample
+end
+
+
+rand(dist,10)
+
+##
+
+
+mMean = 48
+mVar = 91
+μD = 1.2
+mBG = (mMean - mVar + mMean*μD)/μD
+y = (-mMean + mVar)/μD^2
+
+15*1.2
+y*1.2
+
+mBG / (10/12)
+
+0.9*12
+
+( mMean - (mBG + 2*log(200000-2)*1.2) ) / (mBG*(9/12) + 2*1*1.2)

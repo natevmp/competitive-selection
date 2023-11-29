@@ -3,6 +3,7 @@ module CompetitiveSelection
 # using StaticArrays
 using ElasticArrays
 using DataFrames
+using Distances
 using Statistics, StatsBase, LinearAlgebra, SparseArrays
 using DifferentialEquations
 using DiffEqOperators, Dierckx, QuadGK
@@ -11,6 +12,8 @@ using Distributions, Optim, LineSearches
 using Random
 include("dataStructuring.jl")
 using .DataStructuring
+include("analysisTools.jl")
+using .AnalysisTools
 
 # ---- API -----
 # theory function exports

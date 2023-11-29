@@ -6,7 +6,7 @@ using Statistics
 using LsqFit, StatsBase
 
 # export fitLogGrowth
-export fLogistic, fIndFitnessWithAvCompetition
+export fLogistic, fIndFitnessWithAvCompetition, fConstant
 
 # function fitLogGrowth(_t, vaf_t, Nf)
 #     fLogistic(t, t0, r) = 1 / ( 1 + (1 - 1/Nf)/(1/Nf) * exp(-r*(t-t0)) )
@@ -43,28 +43,29 @@ function fLogistic(t, t0, r, x0, xF, z)
     end
 end
 
+fConstant(t,x) = x
+
 fIndFitnessWithAvCompetition(t, t0, s, a, μ, N) = exp( -(a-s)*(t-t0) )*( a*exp(-(a+μ/N)*t0) +  μ/N ) /
     ( N * (a*exp(-(a+μ/N)*t) + μ/N) )
-
 
 """
 get size binned histogram from list of variant sizes.
 """
 function distbin(x_vid; bins::Int=25, xMin::Real=0, xMax::Union{Nothing,Real}=nothing, normalized::Bool=true)
     isnothing(xMax) && (xMax = maximum(x_vid)+0.01)
-    _xEdges = range(xMin, xMax, bins+1)
-    dx = _xEdges[2]-_xEdges[1]
-    _x = _xEdges[1:end-1] .+ dx/2
+    _xEdge = range(xMin, xMax, bins+1)
+    dx = Float64(_xEdge.step)
+    # _x = _xEdges[1:end-1] .+ dx/2
     inRange_vid = (x -> x>=xMin && x<xMax).(x_vid)   #apply thresholds
     n_x = zeros(Float64, bins)
+    # for x in @view x_vid[inRange_vid]
     for x in x_vid[inRange_vid]
         k = ((x-xMin)/dx |> floor |> Int) + 1
         n_x[k] += 1
     end
     normalized && (n_x .*= dx/sum(inRange_vid))
-    return _x, n_x
+    return _xEdge, n_x
 end
-
 
 """
 Compute the size distribution of `f_vid` in absolute number of elements per bin.

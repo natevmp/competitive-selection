@@ -6,11 +6,11 @@ include("../src/abcSims.jl")
 using .ABCSims
 using JLD2, CSV, DataFrames
 
-include(ARGS[1])
-# include("./params/paramsChisquare.jl")
 
 function main()
-
+    
+    include(ARGS[1])
+    
     println("Available threads: ", Threads.nthreads())
 
     # ----- Data --------
@@ -32,10 +32,12 @@ function main()
     # --------- save data -------------
     println("saving data")
     filename = begin
-        "abcResult_"*string(ctrlParams[:metric])*
+        "abcResult_Sampled_"*string(ctrlParams[:metric])*
         "_ages"*string(tBounds[1])*string(tBounds[2])*
         # "_cumulative"*string(ctrlParams[:cumulativeDist])*
         (ctrlParams[:cumulativeDist] ? "_cumulative" : "")*
+        (!haskey(ctrlParams, :sBounds) ? "_SFixed" : "")*
+        (!haskey(ctrlParams, :σBounds) ? "_SFixed" : "")*
         "_particles"*string(ctrlParams[:nParticles])*
         ".jld2"
     end

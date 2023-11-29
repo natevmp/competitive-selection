@@ -1,11 +1,11 @@
 module DataStructuring
 
 using CSV, DataFrames, Statistics, LsqFit, StatsBase, Distributions, Optim, Optimization, Ipopt, ProgressMeter
-# using OptimizationBBO, OptimizationMOI
+using OptimizationBBO, OptimizationMOI
 include("./analysisTools.jl")
 using .AnalysisTools
 
-export analyseVariants, meanVariantParamTime, dropdupes
+export analyseVariants, meanVariantParamTime, dropdupes, binVariantParamTime
 
 include("fitModels.jl")
 
@@ -87,7 +87,13 @@ end
 
 Compute the predicted curve for a model with form and parameters defined by `shape`.
 """
-predict(_t, shape::ModelShape) = [fLogistic(t, shape.t0, shape.γ, shape.x0, shape.xF) for t in _t]
+function predict(_t, shape::Union{LogisticModel, MaxAdjustedLogisticModel})
+    [fLogistic(t, shape.t0, shape.γ, shape.x0, shape.xF) for t in _t]
+end
+
+function predict(_t, shape::ConstantModel)
+    [fConstant(t, shape.x) for t in _t]
+end
 
 """
     fitLogGrowthMLE(_t, vaf_t, nCov_t, Nf)
@@ -176,41 +182,6 @@ function fitLogGrowthMLE!(_t, vaf_t, nCov_t, Nf, modelShape::ModelShape; timeLim
     # return Optim.converged(fit)
 end
 
-# function fitLogGrowthMLE(_t, vaf_t, nCov_t, Nf; timeLimit=1.0, adjustedLogit::Bool=false)
-
-#     X_t = round.(vaf_t.*nCov_t) .|> Int #! we need a better correction for the X chromosome later on
-
-#     logitModel = getLogitModel(_t, vaf_t, adjustedLogit)
-
-#     function logprobX(X, t, n, b)
-#         length(b)>3 && b[4]<0 && (b[4]=0.0001)
-#         p = fLogModel(t,Nf,b,logitModel)
-#         #! debug
-#         if p < 0 || p > 1 || isnan(p)
-#             println("\nb: ", b)
-#             println("p: ", p)
-#             println("t: ", t)
-#         end
-#         #! debug
-#         logpdf(Binomial(n, p), X)
-#     end
-
-#     logllh(b) = -([
-#         logprobX(X_t[i], _t[i], nCov_t[i], b) for i in eachindex(_t)
-#     ] |> sum)
-
-#     #! debug
-#     # println("X_t: ", X_t)
-#     # for i in eachindex(_t) println("fLogistic: ", fLogModel(_t[i], Nf, logitModel.b0, logitModel)) end
-#     # for i in eachindex(_t) println("logprobX: ", logprobX(X_t[i], _t[i], nCov_t[i], logitModel.b0) ) end
-#     # for i in eachindex(_t) println("coverage: ", nCov_t[i] ) end
-#     # println("llh: ", logllh(logitModel.b0))
-#     #! debug
-
-#     alg = Fminbox(BFGS())
-#     return optimize(logllh, logitModel.lower, logitModel.upper, logitModel.b0, alg, Optim.Options(time_limit = timeLimit))
-# end
-
 function fLogCompModel(t, Nf, b)
     # b[1]=t0, b[2]=s, b[3]=a, b[4]=μ
     AnalysisTools.fIndFitnessWithAvCompetition(t, b[1], b[2], b[3], b[4], Nf)
@@ -278,7 +249,9 @@ function sortDataPerVariant(df::DataFrame)
         gene=String7[],
         cov_t=Vector{Int64}[], # coverage
         n_t=Vector{Float64}[], # mutation counts
+        vid=Int16[], # variant id number
     )
+    vidCur::Int16 = 0
     for pid in _pid
         _vid = 
         dropdupes(
@@ -290,18 +263,24 @@ function sortDataPerVariant(df::DataFrame)
                 "AAChange.refGene" => ref->ref.==vid,
                 "SardID" => s->s.==pid,
             )
-
+            
             
             length( findall((v->v>0).(subDf[:,:VAF]) )) < 2 && continue #skip variant if only 1 non-zero VAF measured
             t0Ind = findfirst(subDf[:,:VAF].>0) # get first timepoint where the variant is detected
             length(subDf[t0Ind:end,:Age]) < 3 && continue # skip variant if less than 3 datapoints
+            vidCur += 1
 
+            # _t = subDf[1:end,:Age]
+            # vaf_t = subDf[1:end,:VAF]
+            # cov_t = subDf[1:end, :TOTALcount] # coverage
+            # n_t = subDf[1:end, :MUTcount_Xadj] # mutation counts
             _t = subDf[t0Ind:end,:Age]
             vaf_t = subDf[t0Ind:end,:VAF]
             cov_t = subDf[t0Ind:end, :TOTALcount] # coverage
             n_t = subDf[t0Ind:end, :MUTcount_Xadj] # mutation counts
             gene = subDf[1,:Gene]
-            push!(dfVid, (_t, vaf_t, pid, gene, cov_t, n_t))
+            vid = vidCur
+            push!(dfVid, (_t, vaf_t, pid, gene, cov_t, n_t, vid))
         end
     end
     return dfVid
@@ -418,17 +397,17 @@ end
 
 
 """
-    binVariantGRTime(age_vid, λ_vid)
+    binVariantParamTime(age_vid, p_vid; bins::Int=20) -> _tBinEdge, p_vid_TBin
 
 Bin variant estimated logistic growth rates `λ_vid` measured at times `age_vid` in time-spaced bins. 
 """
 function binVariantParamTime(age_vid, p_vid; bins::Int=20)
     _tBinEdge = range(minimum(age_vid),maximum(age_vid)+1, length=bins+1)
     _tBin = _tBinEdge[1:end-1] .+ Float64(_tBinEdge.step)/2
-    p_vid_TBin = [Float64[] for i in eachindex(_tBin)]
-    for (i,t) in enumerate(age_vid)
-        iBin = 1 + floor((t-_tBinEdge[1])/Float64(_tBinEdge.step)) |> Int
-        append!(p_vid_TBin[iBin], p_vid[i])
+    p_vid_TBin = [eltype(p_vid)[] for i in eachindex(_tBin)]
+    for (vid,t) in enumerate(age_vid)
+        tBin = 1 + floor((t-_tBinEdge[1])/Float64(_tBinEdge.step)) |> Int
+        push!(p_vid_TBin[tBin], p_vid[vid])
     end
     return _tBinEdge, p_vid_TBin
 end
@@ -445,10 +424,10 @@ function binVariantGRTime(dfVid::DataFrame; bins::Int=20)
 end
 
 """
-    meanVarGrowthRateTime(age_vid, λ_vid)
+    meanVariantParamTime(age_vid, λ_vid)
 
 Compute the mean of a fitted parameter at binned timespans from variant measure times `age_vid`.
-Return the bin midpoints `_tBin` and and mean growth rates per bin `vafAv_tBin`.
+Return the bin midpoints `_tBin` and mean growth rates per bin `vafAv_tBin`.
 """
 function meanVariantParamTime(age_vid, p_vid; bins::Int=20)
     _tBinEdge, p_vid_TBin = binVariantParamTime(age_vid, p_vid; bins=bins)
@@ -533,5 +512,143 @@ end
 #     end
 #     return _tBin, λAv_tBin
 # end
+
+
+## =================================================================
+
+function fitAllModels!(dfVid::DataFrame, Nf::Real, models::Vector{String}=["positive logistic", "negative logistic", "constant"]; errorQuantile=0.99)
+    nVars = size(dfVid,1)
+
+    dfVid.fitType = Vector{String}(undef, nVars)
+    dfVid.ρ = Vector{Float64}(undef, nVars)
+    dfVid._tt = Vector{
+        StepRangeLen{Float64, Base.TwicePrecision{Float64}, Base.TwicePrecision{Float64}}
+    }(undef, nVars)
+    dfVid.vafTh_tt = Vector{Vector{Float64}}(undef, nVars)
+    dfVid.vafTh_t = Vector{Vector{Float64}}(undef, nVars)
+    dfVid.vafThQl_t = Vector{Vector{Float64}}(undef, nVars)
+    dfVid.vafThQu_t = Vector{Vector{Float64}}(undef, nVars)
+    dfVid.fit_t = Vector{Vector{Bool}}(undef, nVars)
+    dfVid.goodFit = Vector{Bool}(undef, nVars)
+
+    modelVars = Symbol[]
+    for name in models
+        append!(modelVars, fieldnames(modelShapeFromName(name)))
+    end
+    # varNames = [:γ, :t0, :x0, :xF, :x]
+    varNames = dropdupes(modelVars)
+    for varName in varNames
+        dfVid[:, varName] = Vector{Union{Missing,Float64}}(missing, nVars)
+    end
+
+    @showprogress for dfVCur in eachrow(dfVid)
+        _models = [createModelFromName(model) for model in models]
+        llh_model = [fitGrowthModel!(dfVCur[:_t], dfVCur[:vaf_t], dfVCur[:cov_t], Nf, model)
+            for model in _models]
+        llhMax, indMax = findmax(llh_model)
+        modelFit = _models[indMax]
+        dfVCur[:fitType] = modelName(modelFit)
+
+        dfVCur[:ρ] = corspearman(dfVCur[:_t], dfVCur[:vaf_t])
+        for param in fieldnames(typeof(modelFit.shape))
+            dfVCur[param] = getfield(modelFit.shape, param)
+        end
+
+        dfVCur[:_tt] = range(dfVCur[:_t][1],dfVCur[:_t][end], length=25)
+        dfVCur[:vafTh_tt] = predict(dfVCur[:_tt], modelFit.shape)
+        dfVCur[:vafTh_t] = predict(dfVCur[:_t], modelFit.shape)
+        dfVCur[:vafThQl_t], dfVCur[:vafThQu_t], dfVCur[:fit_t] = testFit(dfVCur[:vaf_t], dfVCur[:vafTh_t], dfVCur[:cov_t], errorQuantile)
+        dfVCur[:goodFit] = all(dfVCur[:fit_t])
+    end
+end
+
+"""
+    Fits the input variant sizes `vaf_t_Vid` at times `_t`, measured with coverage `nCov_t` to the models specified in `models`. All logistic models transition between `0` and `0.5`.
+    Returns vector of fitted selective advantages `s_vid`. Fits that do not succeed are given a `missing` value.
+"""
+function fitModelsLightweight(vaf_t_Vid, _t, cov_t, Nf::Real, models::Vector{String}=["positive logistic", "negative logistic", "constant"]; errorQuantile=0.99 )
+    s_vid = Vector{Union{Missing,Float64}}(undef, length(vaf_t_Vid))
+    for (i,vaf_t) in enumerate(vaf_t_Vid)
+        _models = [createModelFromName(model) for model in models]
+        llh_model = [fitGrowthModel!(_t, vaf_t, cov_t, Nf, model)
+            for model in _models]
+        llhMax, indMax = findmax(llh_model)
+        modelFit = _models[indMax]
+        s_vid[i] = modelFit.shape.γ
+        vafThQl_t, vafThQu_t, fit_t = testFit(vaf_t, predict(_t, modelFit.shape), cov_t, errorQuantile)
+        !all(fit_t) && (s_vid[i] = missing)
+        # println(s_vid[i])
+    end
+    return s_vid
+end
+
+"""
+    Fits the input variant sizes `vaf_t` at times `_t`, measured with coverage `nCov_t` to the model specified in `model`. 
+"""
+function fitGrowthModel!(_t, vaf_t, nCov_t, Nf, model::ModelFit; timeLimit=1.0)
+    
+    # round because X-chromosome mutations can be at half integer abundance
+    X_t = round.(vaf_t.*nCov_t) .|> Int #! we need a better correction for the X chromosome later on
+
+    initial_β = setInitialParamsMLE!(model, _t, vaf_t, Nf)
+
+    function logprobX(X, t, n, β)
+        p = fLogModel(t,β,model)
+        if p <= 0 || p > 1 || isnan(p)
+            p = 1E-20
+        end
+        logpdf(Binomial(n, p), X)
+    end
+    logllh(β, p) = 
+        -([logprobX(X_t[i], _t[i], nCov_t[i], β) for i in eachindex(_t)] |> sum)
+
+    lcons, ucons = boundsMLE(model, _t, vaf_t)
+    optprob = OptimizationFunction(logllh, Optimization.AutoForwardDiff())
+    prob = Optimization.OptimizationProblem(optprob, initial_β, lb=lcons, ub=ucons)
+    sol = solve(prob, BBO_adaptive_de_rand_1_bin_radiuslimited())
+    addFitParams!(model, sol.u)
+    logllhFit =  - logllh(sol.u, 0)
+    return logllhFit
+end
+
+function testFit!(dfVid::DataFrame, errorQuantile)
+    nVars = size(dfVid,1)
+    if !hasproperty(dfVid, :vafThQl_t)
+        dfVid.vafThQl_t = Vector{Vector{Float64}}(undef, nVars)
+    end
+    if !hasproperty(dfVid, :vafThQu_t)
+        dfVid.vafThQu_t = Vector{Vector{Float64}}(undef, nVars)
+    end
+    if !hasproperty(dfVid, :goodFit)
+        dfVid.goodFit = Vector{Bool}(undef, nVars)
+    end
+    if !hasproperty(dfVid, :_goodFit)
+        dfVid._goodFit = Vector{Vector{Bool}}(undef, nVars)
+    end
+
+    for dfVCur in eachrow(dfVid)
+        dfVCur[:vafThQl_t], dfVCur[:vafThQu_t], dfVCur[:_goodFit] = testFit(dfVCur[:vaf_t], dfVCur[:vafTh_t], dfVCur[:cov_t], errorQuantile)
+        dfVCur[:goodFit] = all(dfVCur[:_goodFit])
+    end
+end
+
+function testFit(vafS_t, vafTh_t, cov_t, errorQuantile)
+    vafThQL_t = [
+            quantile(
+                Binomial(cov_t[tInd], vafTh_t[tInd]), 1-errorQuantile
+                ) / cov_t[tInd]
+            for tInd in eachindex(cov_t)
+        ]
+    vafThQU_t = [
+            quantile(
+                Binomial(cov_t[tInd], vafTh_t[tInd]), errorQuantile
+                ) / cov_t[tInd]
+            for tInd in eachindex(cov_t)
+        ]
+    fit_t = ((vafS_t.>vafThQL_t) .&& (vafS_t.<vafThQU_t))
+    return vafThQL_t, vafThQU_t, fit_t
+end
+
+
 
 end
