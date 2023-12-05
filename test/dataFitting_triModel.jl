@@ -3,6 +3,8 @@ include("../src/dataStructuring.jl")
 using .DataStructuring
 using ProgressMeter
 using CairoMakie
+include("../src/analysisTools.jl")
+using .AnalysisTools
 
 using JLD2
 SAVEFIG = false
@@ -57,6 +59,46 @@ colorType(typeS) =
     else
         nothing
     end
+#endregion
+
+## ========================================
+#region = Size distributions
+
+fbins = 15
+_f = zeros(fbins)
+xMin = 0.0002
+xMax = 0.25
+# dfVid = load("./Data/dfDataFittedVid.jld2", "dfVid")
+x_sid = [x for x in Iterators.flatten([dfVidCur[:vaf_t] for dfVidCur in eachrow(dfVid)])]
+t_sid = [t for t in Iterators.flatten([dfVidCur[:_t] for dfVidCur in eachrow(dfVid)])]
+xMask_sid = x_sid.>0
+_tEdges = [50,65,80,95]
+n_f_T = Vector{Vector{Float64}}(undef, length(_tEdges)-1)
+for tid in 1:(length(_tEdges)-1)
+    _fEdges, nData_f = AnalysisTools.sizeDistDens(
+        x_sid[xMask_sid], t_sid[xMask_sid], (_tEdges[tid],_tEdges[tid+1]); bins=fbins, xMin=xMin, xMax=xMax
+    )
+    _f .= _fEdges[2:end] .- step(_fEdges)/2
+    n_f_T[tid] = nData_f
+end
+
+figSizeDist = Figure(fontsize=22)
+Axis(figSizeDist[1,1],
+    xscale=log10,
+    yscale=log10,
+    xlabel="variant size",
+    ylabel="(normalized) number of variants"
+)
+
+ylims!(1E-3, 1)
+for tid in eachindex(n_f_T)
+    lines!(_f, n_f_T[tid] ./ (sum(nData_f)),
+        label="ages "*string(_tEdges[tid])*"-"*string(_tEdges[tid+1])
+    )
+end
+axislegend()
+display(figSizeDist)
+
 #endregion
 
 ## --------------------------------------------------
@@ -435,8 +477,8 @@ figloc="./Figures/Poster/"
 
 rescale = 0.9
 figFitnessDist = Figure(
-    fontsize=26,
-    resolution=(rescale*750,rescale*600)
+    resolution=(rscale*700,rscale*600),
+    fontsize=24,
 )
 Axis(
     figFitnessDist[1,1],
@@ -492,7 +534,114 @@ display(figGRTime)
 
 figname="dataGrowthRatesTime.png"
 figloc="./Figures/ManuscriptDrafts/Figure1/"
-save(figloc*figname, figGRTime, px_per_unit=4)
+SAVEFIG && save(figloc*figname, figGRTime, px_per_unit=4)
+#endregion
+
+## ----------------------------------------
+#region - Sizes of clones for all categories
+
+figSizeSat = Figure(
+    resolution=(rscale*700,rscale*600),
+    fontsize=24,
+)
+Axis(figSizeSat[1,1],
+    xlabel="age of donor",
+    ylabel="size of clone",
+    yscale=log10
+)
+scatter!(
+    [mean(dfVidCur[:_t]) for dfVidCur in eachrow(dfVid[_fitMask.&&_posMask,:])],
+    [mean(dfVidCur[:vaf_t]) for dfVidCur in  eachrow(dfVid[_fitMask.&&_posMask,:])];
+    markersize,
+)
+scatter!(
+    [mean(dfVidCur[:_t]) for dfVidCur in eachrow(dfVid[_fitMask.&&_negMask,:])],
+    [mean(dfVidCur[:vaf_t]) for dfVidCur in  eachrow(dfVid[_fitMask.&&_negMask,:])];
+    markersize,
+)
+scatter!(
+    [mean(dfVidCur[:_t]) for dfVidCur in eachrow(dfVid[_fitMask.&&_satMask,:])],
+    [mean(dfVidCur[:vaf_t]) for dfVidCur in  eachrow(dfVid[_fitMask.&&_satMask,:])];
+    markersize,
+)
+display(figSizeSat)
+
+#endregion
+
+## ----------------------------------------
+#region - Sizes of clones boxplots
+
+# xs = rand(1:3, 1000)
+# ys = randn(1000)
+# boxplot(xs, ys)
+
+
+
+_tBinRange = [20,70,80,100]
+_tBin = _tBinRange[1:end-1] + (_tBinRange[2:end].-_tBinRange[1:end-1])./2
+vaf_vidPos_T = Vector{Vector{Float64}}(undef, length(_tBinRange)-1)
+vaf_vidNeg_T = similar(vaf_vidPos_T)
+vaf_vidSat_T = similar(vaf_vidPos_T)
+for tid in 1:length(_tBinRange)-1
+    _tMask = (_t->_tBinRange[tid] .< mean(_t) .<= _tBinRange[tid+1]).(dfVid[!,:_t])
+    vaf_vidPos_T[tid] = [mean(dfVidCur[:vaf_t]) for dfVidCur in  eachrow(dfVid[_fitMask.&&_posMask.&&_tMask,:])]
+    vaf_vidNeg_T[tid] = [mean(dfVidCur[:vaf_t]) for dfVidCur in  eachrow(dfVid[_fitMask.&&_negMask.&&_tMask,:])]
+    vaf_vidSat_T[tid] = [mean(dfVidCur[:vaf_t]) for dfVidCur in  eachrow(dfVid[_fitMask.&&_satMask.&&_tMask,:])]
+end
+
+figSizeBox = Figure(fontsize=24)
+Axis(figSizeBox[1,1],
+    xticks=([4,8,12], 
+            [
+                "<"*string(_tBinRange[2]),
+                string(_tBinRange[2])*"-"*string(_tBinRange[3]),
+                ">"*string(_tBinRange[3])
+            ]),
+    yticks=[10^(-3),10^(-2),10^(-1),10^0],
+    ylabel="Clone size",
+    xlabel="Age (years)",
+    yscale=log10,
+    xgridvisible=false,
+)
+ylims!(0.003,1)
+colorCycle(1)
+for (tid,t) in enumerate(_tBin)
+    xLoc = 4*tid
+    boxplot!(
+        (xLoc-1)*ones(length(vaf_vidPos_T[tid])),
+        2*vaf_vidPos_T[tid],
+        show_outliers=false,
+        color=(colorCycle(1),0.5),
+    )
+    scatter!(
+        (xLoc-1) .+ 0.1 .*randn(length(vaf_vidPos_T[tid])).*ones(length(vaf_vidPos_T[tid])), 2*vaf_vidPos_T[tid],
+        color=colorCycle(1),
+    )
+    boxplot!(
+        xLoc*ones(length(vaf_vidNeg_T[tid])),
+        2*vaf_vidNeg_T[tid],
+        show_outliers=false,
+        color=(colorCycle(2),0.5),
+    )
+    scatter!(
+        xLoc .+ 0.1 .*randn(length(vaf_vidNeg_T[tid])).*ones(length(vaf_vidNeg_T[tid])), 2*vaf_vidNeg_T[tid],
+        color=colorCycle(2),
+    )
+    boxplot!(
+        (xLoc+1)*ones(length(vaf_vidSat_T[tid])),
+        2*vaf_vidSat_T[tid],
+        show_outliers=false,
+        color=(colorCycle(3),0.5),
+    )
+    scatter!(
+        (xLoc+1) .+ 0.1 .*randn(length(vaf_vidSat_T[tid])).*ones(length(vaf_vidSat_T[tid])), 2*vaf_vidSat_T[tid],
+        color=colorCycle(3),
+    )
+end
+
+display(figSizeBox)
+SAVEFIG && save("Figures/cloneSizesBoxplot.png",figSizeBox)
+
 #endregion
 
 ## --------------------------------------------------
@@ -880,3 +1029,57 @@ axislegend()
 display(figGammaDists)
 
 #endregion
+
+## ----------------------------------------
+#region - Correlation Negative fitness vs initial frequency
+using HypothesisTests
+
+vafIn_vidNeg = [dfVidCur[:vaf_t][1] for dfVidCur in eachrow(dfVid[_negMask,:])]
+s_vidNeg = [dfVidCur[:γ] for dfVidCur in eachrow(dfVid[_negMask,:])]
+
+figNegFitCor = Figure(fotnsize=24)
+Axis(figNegFitCor[1,1],
+    yscale=log10,
+    ylabel="Clone size",
+    xlabel="(negative) fitness strength"
+)
+# xlims!(-.01,0.8)
+xlims!(0.001,0.8)
+# ylims!(0.002,0.35)
+# ylims!(-0.01,0.15)
+# scatter!(vafIn_vidNeg, -s_vidNeg, color=colorCycle(2))
+scatter!(-s_vidNeg, vafIn_vidNeg, color=colorCycle(2))
+
+modelFitFreq = lm(@formula(y ~ x), DataFrame(x=-s_vidNeg, y=log.(vafIn_vidNeg)))
+decInt = coef(modelFitFreq)[1]
+decSlope = coef(modelFitFreq)[2]
+_s = 0:0.01:0.8
+linReg_s = (s->decInt+decSlope*s).(_s)
+# lines!(
+#     _s[linReg_s.>0], linReg_s[linReg_s.>0],
+#     color=:black,
+# )
+lines!(
+    _s, exp.(linReg_s),
+    color=:black,
+)
+
+display(figNegFitCor)
+
+cor(-s_vidNeg, log.(vafIn_vidNeg))
+pvalue(CorrelationTest(
+    -s_vidNeg,
+    log.(vafIn_vidNeg),
+    ))
+
+
+cor(vafIn_vidNeg,-s_vidNeg)
+corspearman(vafIn_vidNeg,-s_vidNeg)
+pvalue(CorrelationTest(
+    -s_vidNeg,
+    vafIn_vidNeg,
+    ))
+
+#endregion
+
+

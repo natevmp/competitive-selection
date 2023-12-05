@@ -26,7 +26,7 @@ ctrlParams = Dict{}(
 
 @time solEns, simArgs = CompetitiveSelection.evolvePopSim(
     params;
-    runs=20,
+    runs=1000,
     noDiffusion=false
 )
 
@@ -380,7 +380,8 @@ _fitMaskSims = dfSimsVid[!,:goodFit]
 
 ## ----------------------------------------
 #region - fitted logistic fitnesses with time
-
+sum(_negMaskSims)
+# sum(_satMaskSims)
 rscale = 0.8
 figGRTime = Figure(
     resolution=(rscale*700,rscale*600),
@@ -395,26 +396,31 @@ Axis(
     ylabel="fitted logistc growth rate",
 )
 scatter!(
-    [dfVidCur[:_t][1] for dfVidCur in eachrow(dfSimsVid[_fitMaskSims.&&_posMaskSims,:])],
+    [mean(dfVidCur[:_t]) for dfVidCur in eachrow(dfSimsVid[_fitMaskSims.&&_posMaskSims,:])],
     dfSimsVid[_fitMaskSims.&&_posMaskSims, :γ];
     markersize,
 )
 scatter!(
-    [dfVidCur[:_t][1] for dfVidCur in eachrow(dfSimsVid[_fitMaskSims.&&_negMaskSims,:])],
+    [mean(dfVidCur[:_t]) for dfVidCur in eachrow(dfSimsVid[_fitMaskSims.&&_negMaskSims,:])],
     dfSimsVid[_fitMaskSims.&&_negMaskSims, :γ];
     markersize,
 )
-scatter!(
-    [dfVidCur[:_t][1] for dfVidCur in eachrow(dfSimsVid[_fitMaskSims.&&_satMaskSims,:])],
-    dfSimsVid[_fitMaskSims.&&_satMaskSims, :γ];
-    markersize,
-)
+# scatter!(
+#     [mean(dfVidCur[:_t]) for dfVidCur in eachrow(dfSimsVid[_fitMaskSims.&&_satMaskSims,:])],
+#     dfSimsVid[_fitMaskSims.&&_satMaskSims, :γ];
+#     markersize,
+# )
 ylims!(-0.4,0.8)
 # xlims!()
 display(figGRTime)
 figname="SimsGrowthRatesTime.png"
 figloc="./Figures/ManuscriptDrafts/"
 # save(figloc*figname, figGRTime)
+
+#endregion
+
+## ----------------------------------------
+#region - size of saturating clones
 
 #endregion
 

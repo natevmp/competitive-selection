@@ -144,8 +144,8 @@ eltype(particle_pid)
 # ctrlParams[:thresholds] = (0.0019, (1, 1))
 # ctrlParams[:thresholds] = (0.004, (0.001, 0.0157)) # maximize fit to logistic fitness
 # ctrlParams[:thresholds] = (0.0012, (0.003, 0.02)) # maximize fit to size dist
-# ctrlParams[:thresholds] = (0.0012, (0.001, 0.019)) # intermediate fit logistic and size dist
-ctrlParams[:thresholds] = (0.0015, (0.001, 0.03)) # intermediate fit logistic and size dist
+ctrlParams[:thresholds] = (0.0012, (0.001, 0.018)) # intermediate fit logistic and size dist
+# ctrlParams[:thresholds] = (0.0015, (0.001, 0.03)) # intermediate fit logistic and size dist
 ctrlParams[:tEarly] = 30
 ctrlParams[:tLate] = 70
 ctrlParams[:nVarsBoundEarly] = (0,3)
@@ -241,6 +241,7 @@ for (i, par) in enumerate([:s, :σ, :μ, :N, :α])
     xlims!(parlimits[par]...)
 end
 display(fig)
+save("Figures/abc5d.png", fig)
 
 ##
 # for (i, par) in enumerate([:s, :σ, :μ, :N, α])

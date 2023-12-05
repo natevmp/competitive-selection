@@ -6,7 +6,8 @@ using DataFrames
 using Distances
 using Statistics, StatsBase, LinearAlgebra, SparseArrays
 using DifferentialEquations
-using DiffEqOperators, Dierckx, QuadGK
+using Dierckx, QuadGK
+# using DiffEqOperators
 using LsqFit, StatsBase
 using Distributions, Optim, LineSearches
 using Random

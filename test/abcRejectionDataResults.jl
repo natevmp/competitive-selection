@@ -17,45 +17,6 @@ using Distributions
 
 ctrlParams = load("./Data/SimResults/ParticlesV2_N100000_7076/parameters.jld2", "ctrlParams")
 
-# tBounds = (70,76)
-# modelParams = Dict{Symbol,Union{Int64,Float64,String}}(
-#     :T => 100,
-#     :N => 200000,
-#     :α => 1,
-#     :sType => "gamma",
-#     :q => 1,
-# )
-# ctrlParams = Dict(
-#     :tBounds => tBounds,
-#     :simRuns => 500,
-#     :fBins => 25,
-#     :sBins => 50,
-#     :sFitBounds => (-0.5, 1),
-#     :sQError => 0.95,
-#     :nSamples => 2, # number of variants to sample per patient (sim) when performing logistic fit
-#     :nTimeSteps => 4, # number of time points per variant to sample when performing logistic fit
-#     :tStep => 2.5, # time between sample time points when performing logistic fit 
-#     :fMin => 0.0002, #the minimum size appearing in the data
-#     :fMax => 0.5,
-#     :coverage => 1000, # sequencing coverage to use in sampling
-#     :fixPar => Symbol[],
-#     :sBounds => (0.01, 1.), # ABC particle parameter bounds
-#     :σBounds => (0.005, 0.1), # ABC particle parameter bounds
-#     :μBounds => (0.1, 15), # ABC particle parameter bounds
-#     :params => modelParams, # model parameters to use for simulations
-#     # -------- rejection parameters --------
-#     :nParticles => 1,
-#     :maxIter => 20,
-#     :metric => "chisquare",
-#     :cumulativeDist => false,
-#     :thresholds => (0.1,(0.1,0.1)),
-#     :tEarly => 40,
-#     :tLate => 70,
-#     :nVarsBoundEarly => (0,2),
-#     :nVarsBoundLate => (1,25),
-# )
-# tEarly, (lBoundEarly, uBoundEarly), tLate, (lBoundLate, uBoundLate)
-
 #endregion
 
 ## ----------------------------------------
