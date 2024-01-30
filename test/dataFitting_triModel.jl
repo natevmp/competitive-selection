@@ -5,6 +5,7 @@ using ProgressMeter
 using CairoMakie
 include("../src/analysisTools.jl")
 using .AnalysisTools
+using GLM
 
 using JLD2
 SAVEFIG = false
@@ -421,6 +422,7 @@ ax = Axis(
     ygridvisible=false,
     rightspinevisible=false,
     topspinevisible=false,
+    # yscale=log10,
 )
 # hidespines!(ax, :t, :r)
 _scatMarker=[:circle, :diamond, :utriangle, :pentagon]
@@ -464,12 +466,13 @@ for (i,dfVCur) in enumerate(eachrow(dfVid[_vidPlot,:]))
         color=colorCur,
     )
 end
-xlims!(54,95)
+xlims!(54,100)
 ylims!(-0.01,0.43)
+# ylims!(0.01,0.43)
 display(fig0)
 figname="singleTrajectories.svg"
-figloc="./Figures/Poster/"
-# save(figloc*figname, fig0, px_per_unit=4)
+figloc="./Figures/"
+save(figloc*figname, fig0, px_per_unit=4)
 #endregion
 
 ## --------------------------------------------------
@@ -1083,3 +1086,30 @@ pvalue(CorrelationTest(
 #endregion
 
 
+
+## ========================================
+#region = Investigating specific mutants
+
+maskDNMT3A_vid = dfVid[!,:gene].=="DNMT3A"
+fBins = 80
+tBounds = (30,100)
+x_sid = [x for x in Iterators.flatten([dfVidCur[:vaf_t][end] for dfVidCur in eachrow(dfVid[maskDNMT3A_vid,:])])]
+t_sid = [t for t in Iterators.flatten([dfVidCur[:_t][end] for dfVidCur in eachrow(dfVid[maskDNMT3A_vid,:])])]
+xMask_sid = x_sid.>0
+sum(xMask_sid)
+_fEdges, nData_f = AnalysisTools.sizeDistDens(
+    x_sid[xMask_sid], t_sid[xMask_sid], tBounds; bins=fBins, xMin=0, xMax=0.6
+)
+_fMut = _fEdges[1:end-1] .+ (_fEdges[2]-_fEdges[1])
+fig = Figure(fontsize=24)
+Axis(fig[1,1],
+    # xscale=log10,
+    yscale=log10,
+    xlabel="variant allele frequency",
+    ylabel="(rescaled) number of variants"
+)
+ylims!(1E-5,1E-2)
+scatterlines!(_fMut, nData_f)
+display(fig)
+
+#endregion

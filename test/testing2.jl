@@ -77,3 +77,18 @@ using Distributions
 vec = rand(Uniform{Float64}(0.001, 0.1), 100000)
 hist(vec, bins=100)
 
+##
+
+testa = [3,46,2,4,6,7,11,2,5,6,0,9,6,4,2,1,5,7,3,2]
+_cid = findall(testa .>= 7)
+testa[_cid]
+
+_cid2 = _cid[sortperm(testa[_cid],rev=true)]
+
+testa[_cid2]
+
+if sortVars # sorts the variants from 
+    _cid = _cid[sortperm(sol(t)[_cid],rev=true)]
+else
+    shuffle!(_cid)
+end

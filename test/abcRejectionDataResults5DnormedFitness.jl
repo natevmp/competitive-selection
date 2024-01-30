@@ -16,7 +16,7 @@ using Glob, Statistics, ProgressMeter
 ## ========================================
 #region = Parameter values
 
-simDir = "C:/Users/monper02/Documents/Datasets/CompetitiveSelectionSimResults/Particles5D_7076/"
+simDir = "C:/Users/monper02/Documents/Datasets/CompetitiveSelectionSimResults/Particles5D_NormFitness_7076/"
 ctrlParams = load(simDir*"parameters.jld2", "ctrlParams")
 
 #endregion
@@ -92,20 +92,13 @@ for par in keys(particle_pid[1].paramSet)
 end
 
 ##
-particle_pid[1].paramSet
 
-sOverTau_pid = [particle.paramSet[:s]/particle.paramSet[:τ] for particle in particle_pid]
+s_pid = [particle.paramSet[:σ]*particle.paramSet[:τ] for particle in particle_pid]
+
 fig = Figure()
-Axis(fig[1,1],
-    xlabel="s/tau",
-    ylabel="counts"
-)
-hist!(sOverTau_pid, bins=100)
-
-# xlims!(0,0.5)
+Axis(fig[1,1])
+hist!(s_pid)
 display(fig)
-
-
 
 #endregion
 
@@ -122,11 +115,10 @@ length(particle_pid)
 eltype(particle_pid)
 
 thresholdAllParticles = (Inf, (Inf, Inf)) # all particles
-thresholdIntermediate = (0.001, (0.0015, 0.02)) # intermediate fit logistic and size dist 
-thresholdIntermediate = (0.0014, (0.001, 0.02)) # intermediate fit logistic and size dist 
-thresholdFitnessDist = (0.1, (0.0006, 0.017)) # maximize fit to fitness distribution
-thresholdSizeDist = (0.0005, (1, 1)) # maximize fit to size distribution
-ctrlParams[:thresholds] = thresholdFitnessDist
+thresholdIntermediate = (0.001, (0.0015, 0.019)) # intermediate fit logistic and size dist 
+thresholdFitnessDist = (0.1, (0.0006, 0.016)) # maximize fit to fitness distribution
+thresholdSizeDist = (0.0006, (1, 1)) # maximize fit to size distribution
+ctrlParams[:thresholds] = thresholdIntermediate
 # ctrlParams[:tEarly] = 30
 # ctrlParams[:tLate] = 70
 # ctrlParams[:nVarsBoundEarly] = (0,3)
@@ -154,12 +146,7 @@ params_aid = ABCRejection.acceptedParams(particle_pid, accepted_pid)
 val_aid_param = Array{Float64,2}(undef, length(params_aid), length(params_aid[1]))
 for (aid, params) in enumerate(params_aid)
     for (parid, par) in enumerate(keys(params))
-        # if par==:s||par==:σ
-        if false
-            val_aid_param[aid, parid] = params[par]/params[:τ]
-        else
-            val_aid_param[aid, parid] = params[par]
-        end
+        val_aid_param[aid, parid] = params[par]
     end
 end
 #endregion
@@ -178,19 +165,15 @@ SAVEFIG = false
 
 bounds = (s=ctrlParams[:sBounds], σ=ctrlParams[:σBounds], μ=ctrlParams[:μBounds])
 labels = (
-    s="s/τ",
-    σ="σ/τ",
+    s="s",
+    σ="σ",
     μ="μ",
     N="N",
     τ="τ",
 )
 ctrlParams
 parlimitsFull = (
-    # s=ctrlParams[:sBounds] ./ 
-        # (ctrlParams[:τBounds][2],ctrlParams[:τBounds][1]),
     s=ctrlParams[:sBounds],
-    # σ=ctrlParams[:σBounds] ./ 
-    #     (ctrlParams[:τBounds][2],ctrlParams[:τBounds][1]),
     σ=ctrlParams[:σBounds],
     μ=ctrlParams[:μBounds],
     N=ctrlParams[:NBounds],
@@ -235,7 +218,7 @@ for (i, par) in enumerate([:s, :σ, :μ, :N, :τ])
         ylabel="counts",
     )
     hist!(val_aid_param[:,i], bins=40)
-    xlims!(parlimitsFull[par]...)
+    xlims!(parLimitsPlot[par]...)
 end
 fitName, figureTitle =  
     if ctrlParams[:thresholds]==thresholdFitnessDist
@@ -258,9 +241,11 @@ SAVEFIG && save(filename, fig)
 ## ----------------------------------------
 #region - Posterior distributions
 
-# tau
+# τ
 figTauPost = Figure()
-Axis(figTauPost[1,1])
+Axis(figTauPost[1,1],
+    xlabel="τ",
+)
 hist!(val_aid_param[:,5], bins=15)
 vlines!([mean(val_aid_param[:,5])], color=:red, label="mean: "*string(round(mean(val_aid_param[:,5]),digits=2)))
 vlines!([median(val_aid_param[:,5])], color=:blue, label="median: "*string(round(median(val_aid_param[:,5]),digits=2)))
@@ -268,29 +253,93 @@ xlims!(0, 10)
 axislegend(position=:rt)
 display(figTauPost)
 
-
-#endregion
-
-## ----------------------------------------
-#region - division rate normalized fitness parameter
-
-figFitnessNormed = Figure(fontsize=24)
-
-# for (i, par) in enumerate([:s, :σ, :μ, :N, :τ])
-Axis(figFitnessNormed[1,1],
-    xlabel="s/τ",
-    ylabel="counts",
+##
+# η
+figEtaPost = Figure()
+Axis(figEtaPost[1,1],
+    xlabel="η",
 )
-hist!(val_aid_param[:,1] ./ val_aid_param[:,5], bins=40)
-xlims!(0,0.2)
-display(figFitnessNormed)
+hist!(val_aid_param[:,1], bins=15)
+vlines!([mean(val_aid_param[:,1])], color=:red, label="mean: "*string(round(mean(val_aid_param[:,1]),digits=2)))
+vlines!([median(val_aid_param[:,1])], color=:blue, label="median: "*string(round(median(val_aid_param[:,1]),digits=2)))
+xlims!(0, 0.2)
+axislegend(position=:rt)
+display(figEtaPost)
+
+##
+# σ
+figEtaPost = Figure()
+Axis(figEtaPost[1,1],
+    xlabel="σ",
+)
+hist!(val_aid_param[:,2], bins=15)
+vlines!([mean(val_aid_param[:,2])], color=:red, label="mean: "*string(round(mean(val_aid_param[:,2]),digits=2)))
+vlines!([median(val_aid_param[:,2])], color=:blue, label="median: "*string(round(median(val_aid_param[:,2]),digits=2)))
+xlims!(0, 0.05)
+axislegend(position=:lt)
+display(figEtaPost)
+
+##
+# μ
+figEtaPost = Figure()
+Axis(figEtaPost[1,1],
+    xlabel="μ",
+)
+hist!(val_aid_param[:,3], bins=15)
+vlines!([mean(val_aid_param[:,3])], color=:red, label="mean: "*string(round(mean(val_aid_param[:,3]),digits=2)))
+vlines!([median(val_aid_param[:,3])], color=:blue, label="median: "*string(round(median(val_aid_param[:,3]),digits=2)))
+# xlims!(0, 0.)
+axislegend(position=:rt)
+display(figEtaPost)
+
+##
+# μ zoomed
+figEtaPost = Figure()
+Axis(figEtaPost[1,1],
+    xlabel="μ",
+)
+hist!(val_aid_param[:,3][val_aid_param[:,3].<10], bins=15)
+vlines!([mean(val_aid_param[:,3])], color=:red, label="mean: "*string(round(mean(val_aid_param[:,3]),digits=2)))
+vlines!([median(val_aid_param[:,3])], color=:blue, label="median: "*string(round(median(val_aid_param[:,3]),digits=2)))
+# xlims!(0, 0.)
+axislegend(position=:rt)
+display(figEtaPost)
+
+##
+# N
+figEtaPost = Figure()
+Axis(figEtaPost[1,1],
+    xlabel="N",
+)
+hist!(val_aid_param[:,4], bins=15)
+vlines!([mean(val_aid_param[:,4])], color=:red, label="mean: "*string(round(mean(val_aid_param[:,4]),digits=2)))
+vlines!([median(val_aid_param[:,4])], color=:blue, label="median: "*string(round(median(val_aid_param[:,4]),digits=2)))
+# xlims!(0, 0.)
+axislegend(position=:lt)
+display(figEtaPost)
+
 
 #endregion
 
 ## ----------------------------------------
-#region - s*tau inference:
+#region - Save accepted particles to DataFrame and CSV filename
 
-hist(val_aid_param[:,1]./val_aid_param[:,5])
+using DataFrames
+using CSV
+
+# 1, s="s",
+# 2, σ="σ",
+# 3, μ="μ",
+# 4, N="N",
+# 5, τ="τ",
+df = DataFrame()
+df.s = val_aid_param[:,1]
+df.σ = val_aid_param[:,2]
+df.μ = val_aid_param[:,3]
+df.N = val_aid_param[:,4]
+df.τ = val_aid_param[:,5]
+
+CSV.write("Data/abcAcceptedParams_Intermediate_5D_normedFitness.csv", df)
 
 #endregion
 
@@ -298,11 +347,13 @@ hist(val_aid_param[:,1]./val_aid_param[:,5])
 #region - Comparing accepted particles: logistic fitness distribution
 using ColorSchemes
 
+
+
 rsc = 0.8
 figFitness = Figure(fontsize=24, resolution=(rsc*800,rsc*600))
 Axis(figFitness[1,1],
-    xlabel="logistic fitness s*",
-    ylabel="density",
+    xlabel="s̃",
+    ylabel="pdf",
     # title="Ages "*string(tBounds[1])*"-"*string(tBounds[2])*": particle no. "*string(pid),
 )
 lines!(
@@ -332,7 +383,8 @@ axislegend(position=:rt)
 xlims!(-0.5,0.8)
 ylims!(0,0.012)
 display(figFitness)
-filename = "Figures/fitnessDist_"*fitName*".png"
+
+filename = "Figures/fitnessDist_5D_NormedFitness_"*fitName*".png"
 SAVEFIG && save(filename, figFitness)
 
 #endregion
@@ -369,6 +421,86 @@ display(figSizeDist)
 
 filename = "Figures/SizeDist_"*fitName*".png"
 SAVEFIG && save(filename, figSizeDist)
+
+#endregion
+
+## ----------------------------------------
+#region - Size dist + fitness dist Single figure
+using LaTeXStrings
+
+figFitnessSizeDist = Figure(fontsize=30, size=(1300, 600))
+ga = figFitnessSizeDist[1, 1] = GridLayout()
+# fitness distribution
+Axis(ga[1,1],
+    xlabel=L"$\tilde{s}$",
+    ylabel="pdf",
+)
+linRej = lines!(
+    _s, particle_pid[.!accepted_pid][1].simResults[2],
+    color=:grey65,
+    label="rejected particles",
+)
+for (i,particle) in enumerate(particle_pid[.!accepted_pid])
+    lines!(
+        _s, particle.simResults[2],
+        color=(:grey65, 0.5),
+    )
+end
+linAcc = lines!(
+    _s, particle_pid[accepted_pid][1].simResults[2],
+    color=ColorSchemes.Blues_3[2],
+    label="accepted particles",
+)
+for (i,particle) in enumerate(particle_pid[accepted_pid])
+    lines!(
+        _s, particle.simResults[2],
+        color=ColorSchemes.Blues_3[2],
+    )
+end
+linData = scatterlines!(_s, dataMetrics[2], label="data")
+# axislegend(position=:rt)
+xlims!(-0.5,0.8)
+ylims!(0,0.012)
+
+# size distribution
+_f = _fEdges[1:end-1] .+ Float64(_fEdges.step)/2
+Axis(ga[1,2],
+    xlabel="variant allele frequency",
+    # ylabel="density of variants",
+    xscale=log10,
+    yscale=log10,
+)
+minimum(particle_pid[4].simResults[1])
+ylims!(2E-5,0.21E-1)
+xlims!(_f[1], _f[end])
+lines!(_f, particle_pid[1].simResults[1],
+    color=:grey65,
+    label="rejected particle",
+)
+for pid in findall(.!accepted_pid)[2:end]
+    lines!(_f, particle_pid[pid].simResults[1],
+    color=(:grey65, 0.5),
+    )
+end
+lines!(_f, particle_pid[accepted_pid][1].simResults[1], color=ColorSchemes.Blues_3[2], label="accepted particle")
+for pid in findall(accepted_pid)[2:end]
+    lines!(_f, particle_pid[pid].simResults[1], color=ColorSchemes.Blues_3[2])
+end
+scatterlines!(_f, nData_f, label="Fabre data")
+# axislegend(position=:rt)
+
+#legend
+leg = Legend(ga[0,:],
+    [linRej, linAcc, linData],
+    ["rejected particle", "accepted particle", "Fabre data"],
+    nbanks = 3,
+)
+leg.tellheight = true
+# rowgap!(ga, 10)
+display(figFitnessSizeDist)
+
+filename = "Figures/FitnessSizeDist_5D_normedFitness_"*fitName*".png"
+SAVEFIG && save(filename, figFitnessSizeDist)
 
 #endregion
 
@@ -410,46 +542,6 @@ figname = "fitnessDistributionABCResults.png"
 SAVEFIG && save("./Figures/ManuscriptDrafts/"*figname, figFitDist, px_per_unit=2)
 
 #endregion
-
-## ----------------------------------------
-#region - true fitness distribution - Normalized
-
-gammaMeanStdToShapeScale(mean, std) = ((mean/std)^2, std^2/mean)
-_s = range(0,0.25,length=300)
-prob_s_pid = Array{Float64,2}(undef, length(_s), length(particle_pid))
-for (i,particle) in enumerate(particle_pid)
-    (α, θ) = gammaMeanStdToShapeScale(particle.paramSet[:s]/particle.paramSet[:τ], particle.paramSet[:σ]/particle.paramSet[:τ])
-    prob_s_pid[:,i] = pdf.(Gamma(α, θ), _s)
-end
-
-#
-
-figFitDist = Figure(fontsize=28, size=(rsc*800,rsc*600))
-Axis(
-    figFitDist[1,1],
-    xlabel="s/τ",
-    ylabel="pdf"
-    # limits=((_s[1],_s[end]), nothing),
-)
-xlims!(_s[1],_s[end])
-ylims!(0, 150)
-for pid in findall(.!accepted_pid)
-    lines!(_s, prob_s_pid[:,pid],
-    color=(:grey60,0.2),
-    )
-end
-for pid in findall(accepted_pid)
-    lines!(_s, prob_s_pid[:,pid],
-    color=(Makie.wong_colors()[1],0.4),
-    )
-end
-display(figFitDist)
-#
-figname = "fitnessDistributionABCResults.png"
-SAVEFIG && save("./Figures/ManuscriptDrafts/"*figname, figFitDist, px_per_unit=2)
-
-#endregion
-
 
 ## ----------------------------------------
 #region detectable clones with age

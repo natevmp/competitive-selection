@@ -93,7 +93,8 @@ function variantsAboveThreshold(solEns::EnsembleSolution, f0::Real; nSamples::Un
 end
 
 function variantsAboveThreshold(solEns::EnsembleSolution, t::Real, f0::Real; nSamples::Union{Nothing,Real}=nothing)
-    nVars_sim = Array{Float64}(undef, length(solEns))
+    nVarsDetectAv = 0
+    fTotDetectAv = 0
     for simId in eachindex(solEns)
         if !isnothing(nSamples)
             vafSampled_vid = (vaf->sampleIntFromFreq(vaf, nSamples)).(solEns[simId](t))
@@ -101,11 +102,31 @@ function variantsAboveThreshold(solEns::EnsembleSolution, t::Real, f0::Real; nSa
         else
             detectableVariants_vid = solEns[simId](t) .> f0
         end
-        nVars_sim[simId] = sum(detectableVariants_vid)
+        nVarsDetectAv += sum(detectableVariants_vid) / length(solEns)
+        fTotDetectAv += sum(vafSampled_vid[detectableVariants_vid]) / length(solEns)
     end
-    return mean(nVars_sim)
+    return nVarsDetectAv, fTotDetectAv
 end
 
+"""
+    Sample variant frequencies of the simulation result at timepoints `_t` with sample sizes `S_t`. Discard variants under frequency `f0`. Return a list of the total variant fractions `fTotDetectAv_t` for each timepoint and the number of variants detected `nVarsDetectAv_t`.
+    `sol`     = simulation result
+    `S_t`     = sample size for each timepoint
+    `_t`      = list of timepoints
+    `f0`      = minimum sampled frequency to accept
+    returns `nVarsDetectAv_t`, `fTotDetectAv_t`
+"""
+function variantsAboveThreshold(solEns::EnsembleSolution, _t::AbstractVector{<:Real}, f0::Real, S_t::AbstractVector{Int})
+    if length(S_t) !== length(_t)
+        println("error: `S_t` should be same length as `_t`")
+    end
+    nVarsDetectAv_t = Vector{Float64}(undef, length(_t))
+    fTotDetectAv_t = Vector{Float64}(undef, length(_t))
+    for (tid, t) in enumerate(_t)
+        nVarsDetectAv_t[tid], fTotDetectAv_t[tid] = variantsAboveThreshold(solEns, t, f0; nSamples=S_t[tid])
+    end
+    return nVarsDetectAv_t, fTotDetectAv_t
+end
 
 # function fitLogGrowth(_t, vaf_t, Nf)
 #     @. modelLogistic(t, p) = fLogistic(t, p[1], p[2], 1/Nf, 1/2)
@@ -164,18 +185,31 @@ function sampleSimTimepoint(sim::RODESolution, t::Real, nSamples::Int, f0::Float
     return vaf_cid
 end
 
-function sampleSimVarTrajectories(sim::RODESolution; t::Union{Real,Nothing}=nothing, tStep=1., nTimeSteps::Int=4)
-
-    isnothing(t) && (t = 10+rand()*80)
-    _cid = findall(sim(t) .>= 0.01)
+function sampleSimTrajectories(sol::RODESolution, t::Real;
+    tStep=1.,
+    nTimeSteps::Int=4,
+    freqCutoff=0.01,
+    nVarsMax::Union{Nothing,Int}=nothing,
+    sortVars::Bool=false, # determines whether largest variants should be prioritized in sampling
+    )
+    _cid = findall(sol(t) .>= freqCutoff) # clone indices of clones > freqCutoff
+    # reduce number of detected variants if nVarsMax is specified
+    if !isnothing(nVarsMax) && length(_cid)>nVarsMax
+        if sortVars # sort indices so they to go from large to small
+            _cid = _cid[sortperm(sol(t)[_cid],rev=true)]
+        else # shuffle indices so clones are picked randomly
+            shuffle!(_cid)
+        end
+        _cid = _cid[1:nVarsMax]
+    end
     _t = range(t; length=nTimeSteps, step=tStep)
-    vaf_t_cid = Array{Float64,2}(undef, nTimeSteps, length(_cid))
+    x_t_cid = Array{Float64,2}(undef, nTimeSteps, length(_cid))
     for (i,tt) in enumerate(_t)
-        for (j,vaf) in enumerate(sim(tt)[_cid])
-            vaf_t_cid[i,j] = vaf
+        for (j,x) in enumerate(sol(tt)[_cid])
+            x_t_cid[i,j] = x
         end
     end
-    return _t, _cid, vaf_t_cid
+    return _t, _cid, x_t_cid
 end
 
 # function fitSamplesGrowth(solEns::Union{EnsembleSolution,Vector{T}} where T, params::Dict; tMeasure::Union{Real,Tuple{Real, Real}}=(50,80), timeLimit=1.0)
@@ -216,37 +250,47 @@ function Base.rand(rng::AbstractRNG, d::StepUniform)
     return sample
 end
 
-function fitSamplesGrowth(solEns::Union{EnsembleSolution,Vector{T}} where T, params::Dict; tMeasure::Union{Real,Tuple{Real, Real},Tuple{AbstractArray,AbstractArray}}=(50,80), timeLimit=1.0, nTimeSteps=4, tStep=1., errorQuantile=0.99)
+function fitSamplesGrowth(solEns::Union{EnsembleSolution,Vector{T}} where T, params::Dict;
+    tMeasure::Union{Real,Tuple{Real, Real},Tuple{AbstractArray,AbstractArray}}=(50,80), # time measurement range
+    timeLimit=1.0,
+    nTimeSteps=4,
+    tStep=1.,
+    errorQuantile=0.99,
+    freqCutoff=0.01,
+    nVarsMax=4,
+    sortVars::Bool=false, # determines whether largest variants should be prioritized in sampling
+    )
     Nf = params[:N]
-    # fit_tλ_cid = ElasticArray{Float64}(undef,2,0)
     dfVid = DataFrame(
         _t=AbstractVector{Real}[],
         vaf_t=Vector{Float64}[],
         cov_t=Vector{Int64}[]
     )
 
-    t_sid = let 
+    t_pid = let # first measurement time of every patient
         if length(tMeasure)<2
-            nothing
-        elseif eltype(tMeasure) <: Real
-            tMeasure[1].+rand(length(solEns)).*(tMeasure[2]-tMeasure[1])
+            tMeasure
+        elseif eltype(tMeasure) <: Real #in this case draw from uniform with boundaries given by `tMeasure`
+            rand(length(solEns)).*(tMeasure[2]-tMeasure[1]).+tMeasure[1]
         else
             dist = StepUniform(tMeasure[1],tMeasure[2])
             rand(dist, length(solEns))
         end
     end
 
-    for (j,sim) in enumerate(solEns)
-        t = let
-            if length(tMeasure)<2
-                tMeasure
-            else
-                t_sid[j]
-            end
-        end # first measurement time point
-        _t, _cid, vaf_t_cid = sampleSimVarTrajectories(sim; t, tStep, nTimeSteps)
+    for (j,sol) in enumerate(solEns)
+        t = t_pid[j] # first measurement time point
+        _t, _cid, x_t_cid = sampleSimTrajectories(sol, t; tStep, nTimeSteps, freqCutoff, nVarsMax)
         for i in eachindex(_cid)
-            vaf_t = vaf_t_cid[:, i]/2
+            vaf_t = x_t_cid[:, i]/2
+            # make sure vaf>0.5 and vaf<0 cases are taken care of
+            for (i,vaf) in enumerate(vaf_t)
+                if vaf>=0.5
+                    vaf_t[i] = 0.499999
+                elseif vaf<=0
+                    vaf_t[i] = 0.000001
+                end
+            end
             cov_t = fill(1000, length(_t))
             push!(dfVid,
                 Dict(
@@ -414,6 +458,40 @@ function fitTrajectoriesFitness(tMeasure, solEns, ctrlParams)
 end
 
 """
+    Sample variant frequencies of the simulation result at timepoints `_t` with sample sizes `S_t`. Discard variants under frequency `f0`. Return a list `s_vid_T` with for each timepoint a list of the sampled variant frequencies above f0.
+    `sol`     = simulation result
+    `S_t`     = sample size for each timepoint
+    `_t`      = list of timepoints
+    `f0`      = minimum sampled frequency to accept
+    returns `s_vid_T`
+"""
+function samplePatientSim(sol, S_t::Vector{Int}, _t; f0=0)
+    nVars = length(sol[1])
+    s_vid_T = Vector{Vector{Float64}}(undef, length(_t))
+    for (tInd,t) in enumerate(_t)
+        s_vid_T[tInd] = Float64[]
+        for vid in 1:nVars
+            # draw S times with success prob fVid to get frequency of vid sVid in sample
+            binomDist = Binomial(S_t[tInd], sol(t)[vid])
+            sVid = rand(binomDist) / S_t[tInd]
+            if sVid>f0 push!(s_vid_T[tInd], sVid) end
+        end
+    end
+    return s_vid_T
+end
+
+function samplePatientSim(sol, S::Int, _t; f0=0)
+    S_t = fill(S, length(_t))
+    samplePatientSim(sol, S_t, _t; f0)
+end
+
+function runModelSimFixedFitness(paramsABC, ctrlParams)
+    # fix `s` based on value of τ
+    ctrlParams[:params][:s] = ctrlParams[:sFixed] * paramsABC[:τ]
+    runModelSim(paramsABC, ctrlParams)
+end
+
+"""
     runModelSim(paramsABC)
 
 Perform a run of the model simulations to obtain a single particle with parameter set `paramsABC`.
@@ -426,6 +504,11 @@ function runModelSim(paramsABC, ctrlParams)
         modelParams[pName] = pVal
     end
 
+    if ctrlParams[:normalizedFitnessDist]
+        modelParams[:s] = modelParams[:s]*modelParams[:τ]
+        modelParams[:σ] = modelParams[:σ]*modelParams[:τ]
+    end
+
     # run model sims
     model = GammaSelectionModel(modelParams[:s], modelParams[:σ], modelParams[:q])
     solEns, simArgs = evolvePopSim(modelParams, model; runs=ctrlParams[:simRuns], noDiffusion=false)
@@ -436,13 +519,17 @@ function runModelSim(paramsABC, ctrlParams)
     # ============ size distribution ============
     nVars_f = sizeDistSims(tMeasure, solEns, parentVid_vid_Sid, ctrlParams)
 
-    # ============ trajectory fitting ============
+    # ============ logistic fitness fitting ============
     nVars_s = fitTrajectoriesFitness(tMeasure, solEns, ctrlParams)
 
-    # ============ mean number of variants above threshold ============
-    detectedVarsAv_t = variantsAboveThreshold(solEns, 0; nSamples=500)
+    # ============ mean number of variants and variant sizes above threshold ============
+    f0 = ctrlParams[:fSampleThreshold]
+    _tS = ctrlParams[:_tS]
+    S_tS = ctrlParams[:S_tS]
+    nVarsDetectAv_t, fTotDetectAv_t = variantsAboveThreshold(solEns, _tS, f0, S_tS)
 
-    return nVars_f, nVars_s, detectedVarsAv_t
+
+    return nVars_f, nVars_s, nVarsDetectAv_t, fTotDetectAv_t
 end
 
 function compareDataVSim(dataMetrics, simResults, thresholds)
@@ -474,7 +561,7 @@ end
 function compareDataVSim2(dataMetrics, simResults, thresholds, _s)
     
     # unpack arguments
-    nSim_f, nSim_s, _ = simResults
+    nSim_f, nSim_s, _, _ = simResults
     nData_f, nData_s = dataMetrics
     fThreshold, (sAvThreshold, sStdThreshold) = thresholds
 
@@ -488,6 +575,24 @@ function compareDataVSim2(dataMetrics, simResults, thresholds, _s)
     sDistAccept = (sAvDist <= sAvThreshold) && (sStdDist <= sStdThreshold)
 
     return (fDistAccept && sDistAccept)
+end
+
+function compareVariantNumbers(nData_t, simResults, threshold)
+    # unpack arguments
+    _, _, nSim_t, _ = simResults
+
+    # compare data and sim number of variants
+    rsqerror = .√((nData_t .- nSim_t ./ ((n->n==0 ? 1 : n).(nData_t))).^2) |> sum
+    return rsqerror <= threshold
+end
+
+function compareVariantSizes(xData_t, simResults, threshold)
+    # unpack arguments
+    _, _, _, xSim_t = simResults
+
+    # compare data and sim variant sizes
+    error = .√((xData_t .- xSim_t ./ ((n->n==0 ? minimum(xData_t[xData_t.>0]) : n).(xData_t))).^2) |> sum
+    return error <= threshold
 end
 
 function compareDataVSimError(dataMetrics, simResults, _s)
@@ -523,4 +628,5 @@ function checkConstraintsDetectableVariants((nSim_f, nSim_s, nVars_t), tEarly, (
     (nVarsEarly>=lBoundEarly) && (nVarsEarly<=uBoundEarly) &&
     (nVarsLate>=lBoundLate) && (nVarsLate<=uBoundLate)
 end
+
 

@@ -9,24 +9,25 @@ using .MullerPlot
 
 ## ========================================
 #region = parameters + Run sims
-
+tau = 3
 params = Dict{Symbol,Union{Int64,Float64,String}}(
     :T => 100,
-    :N => 100000,
-    :α => 0.6,
+    :N => 200000,
+    :α => 1/tau,
     :sType => "gamma",
-    :q => 1,
-    :μ => 8,
-    :s => 0.1,
-    :σ => 0.04,
+    :q => 0.5,
+    :μ => 4,
+    :s => 0.11*tau,
+    :σ => 0.11,
 )
+
 ctrlParams = Dict{}(
     :errorQuantile => 0.98,
 )
 
 @time solEns, simArgs = CompetitiveSelection.evolvePopSim(
     params;
-    runs=1000,
+    runs=20,
     noDiffusion=false
 )
 
@@ -100,17 +101,17 @@ linNCl = lines!(
     linestyle=:dash,
     label="av number of clones"
 )
-ax2 = Axis(
-    fig[1,1],
-    ylabel="number of clones",
-    xlabel="age",
-    yaxisposition=:right
-)
-lines!(_t, propDollCarrying_t, color=Cycled(2)) 
+# ax2 = Axis(
+#     fig[1,1],
+#     ylabel="number of clones",
+#     xlabel="age",
+#     yaxisposition=:right
+# )
+# lines!(_t, propDollCarrying_t, color=Cycled(2)) 
 axislegend(ax1, [linAvCl,linNCl], ["mean size of\nmulti-mutant clones", "mean number of\nmulti-mutant clones"], position=:lt)
 display(fig)
 
-figname="multimutantCloneStats.svg"
+# figname="multimutantCloneStats.svg"
 # save("Figures/ManuscriptDrafts/"*figname, fig)
 #endregion
 
@@ -119,7 +120,7 @@ figname="multimutantCloneStats.svg"
 
 include("../src/mullerPlot.jl")
 using .MullerPlot
-solId = 6
+solId = 4
 sol = solEns[solId]
 println("total variant fraction at end: ", sum(sol.u[end]))
 
@@ -129,7 +130,7 @@ simArgs.parentId_vid[solId]
 parentVid_vid = simArgs.parentId_vid[solId]
 russianDoll_vid = parentVid_vid .!== 0
 vid_child_Vid0 = MullerPlot.buildFamilyArray(parentVid_vid)
-sizeThreshold = 0.001
+sizeThreshold = 0.01
 n_vid = sol.u[end]
 visible_vid = n_vid .> sizeThreshold
 
@@ -203,47 +204,83 @@ display(fig1)
 #endregion
 
 ## ----------------------------------------
-#region - Average total variant fraction
+#region - number of expanded clones / average clone size
+using Distributions
 
-detectThresh=0.01
-_t = 0:(length(solEns[1])-1)
-nTotAv_t = Vector{Float64}(undef, length(_t))
-nClones_t = Vector{Float64}(undef, length(_t))
-nClonesThresh_t = Vector{Float64}(undef, length(_t))
-for tInd in eachindex(_t)
-    nTot = 0
-    nClones = 0
-    nClonesThresh = 0
-    for sol in solEns
-        nTot += sum(sol[tInd])
-        nClones += sum(sol[tInd].>0)
-        nClonesThresh += sum(sol[tInd].>detectThresh)
+"""
+    Sample variant frequencies of the simulation result at timepoints `_t` with sample sizes `S_t`. Discard variants under frequency `f0`. Return a list `s_vid_T` with for each timepoint a list of the sampled variant frequencies above f0.
+    `sol`     = simulation result
+    `S_t`     = sample size for each timepoint
+    `_t`      = list of timepoints
+    `f0`      = minimum sampled frequency to accept
+    returns `s_vid_T`
+"""
+function samplePatientSim(sol, S_t::Vector{Int}, _t; f0=0)
+    nVars = length(sol[1])
+    s_vid_T = Vector{Vector{Float64}}(undef, length(_t))
+    for (tInd,t) in enumerate(_t)
+        s_vid_T[tInd] = Float64[]
+        for vid in 1:nVars
+            # draw S times with success prob fVid to get frequency of vid sVid in sample
+            p = if sol(t)[vid]<0
+                        0
+                elseif sol(t)[vid]>1
+                    1
+                else
+                    sol(t)[vid]
+            end
+            binomDist = Binomial(S_t[tInd], p)
+            sVid = rand(binomDist) / S_t[tInd]
+            if sVid>f0 push!(s_vid_T[tInd], sVid) end
+        end
     end
-    nTotAv_t[tInd] = nTot / length(solEns)
-    nClones_t[tInd] = nClones / length(solEns)
-    nClonesThresh_t[tInd] = nClonesThresh / length(solEns)
+    return s_vid_T
 end
 
+function samplePatientSim(sol, S::Int, _t; f0=0)
+    S_t = fill(S, length(_t))
+    samplePatientSim(sol, S_t, _t; f0)
+end
+
+@time samplePatientSim(sol, [350,340,360], [50,70,80]; f0=0.01)
+@time samplePatientSim(sol, 350, [50,70,80]; f0=0.01)
+
+# include("../src/competitiveSelection.jl")
+# using .CompetitiveSelection
+fThresh=0.01
+_t = [0, 29, 38, 48, 63, 75, 76, 77, 81]
+S_t = [390, 408, 380, 363, 361, 315, 367, 451, 328]
+nClonesSampledAv_t = zeros(length(_t))
+xFracSampledAv_t = zeros(length(_t))
+nClonesThreshAv_t = zeros(length(_t))
+xFracThreshAv_t = zeros(length(_t))
+@showprogress for sol in solEns
+    # only threshold (no sampling) averages
+    nClonesThreshAv_t .+= [sum(fVid.>0.01) for fVid in sol(_t)] ./ length(solEns)
+    xFracThreshAv_t .+= [sum(fVid[fVid.>0.01]) for fVid in sol(_t)] ./ length(solEns)
+    # sampling and threshold averages
+    s_vid_T = samplePatientSim(sol, S_t, _t; f0=fThresh)
+    nClonesS_t = length.(s_vid_T)
+    xFracS_t = sum.(s_vid_T)
+    nClonesSampledAv_t .+= nClonesS_t ./ length(solEns)
+    xFracSampledAv_t .+= xFracS_t ./ length(solEns)
+end
 
 nTotTheory_t = (t->Theory.compCoverage(t, params[:α], params[:s], params[:μ], params[:N])).(_t)
 
-fig = Figure(fontsize=30)
+fig = Figure(fontsize=24)
 Axis(fig[1,1],
     xlabel="time",
     # ylabel="number of clones",
-    ylabel="clonal fraction",
+    ylabel="number of expanded clones",
 )
 
-# lines!(nTotTheory_t)
-# lines!(nClones_t, label="clones alive")
-# lines!(nClonesThresh_t, label="clones above threshold")
-lines!(nTotAv_t,
-    # label="sMean="*string(params[:s])*"; sStd="*string(params[:σ])
-    # label="N="*string(params[:N])*"; α="*string(params[:α])
-    label="α="*string(params[:α])*"; sMean="*string(params[:s]),
+scatter!(_t, nClonesSampledAv_t,
+    # label="μ="*string(params[:μ])
 )
-ylims!(0,1)
-axislegend(position=:lt)
+lines!(_t, nClonesThreshAv_t,
+)
+ylims!(0,15)
 display(fig)
 
 #endregion
@@ -311,9 +348,8 @@ display(fig)
 ## ----------------------------------------
 #region - example trajectories
 
-# solID = 6
-sol = solEns[solID]
-size_vid_T = solEns[solID].u
+sol = solEns[solId]
+size_vid_T = solEns[solId].u
 fig1 = Figure(resolution=(rscale*800, rscale*600), fontsize=24)
 axbottom = Axis(
     fig1[1,1], 
@@ -346,23 +382,25 @@ display(fig1)
 
 ## ========================================
 #region = fit simulations to logistic growth with sampling
+# include("../src/competitiveSelection.jl")
+# using .CompetitiveSelection
 
-# @time dfSimsVid = CompetitiveSelection.fitSamplesGrowth(solEns, params, tMeasure=(60,85); errorQuantile=ctrlParams[:errorQuantile])
-
-
-# run `simulationsExamplePlots.jl` first to run this
-bins = 19
-measureAge_vid = [_t[1] for _t in dfVid[_fitMask,:_t]]
+# Create age distribution for sampling variants
+# run `dataFitting_triModel.jl` first to run this
+bins = 20
+# measureAge_vid = [_t[1] for _t in dfVid[_fitMask,:_t]]
+measureAge_vid = [_t[1] for _t in dfVid[!,:_t]]
 _tEdges, vid_id_T = DataStructuring.binVariantParamTime(
     measureAge_vid,
-    dfVid[_fitMask,:vid],
+    dfVid[!,:vid],
     bins=bins
 )
-length(_tEdges)
-length(nVars_t)
+
 _t = (_tEdges[2]-_tEdges[1])/2 .+_tEdges[1:end-1]
 nVars_t = length.(vid_id_T)
-@time dfSimsVid = CompetitiveSelection.fitSamplesGrowth(solEns, params, tMeasure=(_tEdges, nVars_t); errorQuantile=ctrlParams[:errorQuantile])
+
+# @time dfSimsVid = CompetitiveSelection.fitSamplesGrowth(solEns, params, tMeasure=(50,85); errorQuantile=ctrlParams[:errorQuantile], tStep=3, freqCutoff=0.004, nVarsMax=3, sortVars=true)
+@time dfSimsVid = CompetitiveSelection.fitSamplesGrowth(solEns, params, tMeasure=(_tEdges, nVars_t); errorQuantile=ctrlParams[:errorQuantile], tStep=3, freqCutoff=0.004, nVarsMax=3, sortVars=true)
 dfSimsVid.vid = 1:size(dfSimsVid,1)
 _posMaskSims = dfSimsVid[!,:fitType] .== "positive logistic"
 _negMaskSims = dfSimsVid[!,:fitType] .== "negative logistic"
@@ -372,6 +410,7 @@ grThreshold = 1
 _λMaskSims = [dfVCur[:γ]<grThreshold for dfVCur in eachrow(dfSimsVid)]
 _fitMaskSims = dfSimsVid[!,:goodFit]
 
+dfSimsVid[!,:_t]
 
 # dfSimsVid[!,:γ]
 # size(dfSimsVid[!,:])
@@ -384,7 +423,7 @@ sum(_negMaskSims)
 # sum(_satMaskSims)
 rscale = 0.8
 figGRTime = Figure(
-    resolution=(rscale*700,rscale*600),
+    size=(rscale*700,rscale*600),
     fontsize=24,
 )
 # DataStructuring.testFit!(dfVid, 0.99)
@@ -410,8 +449,8 @@ scatter!(
 #     dfSimsVid[_fitMaskSims.&&_satMaskSims, :γ];
 #     markersize,
 # )
-ylims!(-0.4,0.8)
-# xlims!()
+ylims!(-0.48,0.8)
+xlims!(50,100)
 display(figGRTime)
 figname="SimsGrowthRatesTime.png"
 figloc="./Figures/ManuscriptDrafts/"
@@ -420,7 +459,9 @@ figloc="./Figures/ManuscriptDrafts/"
 #endregion
 
 ## ----------------------------------------
-#region - size of saturating clones
+#region - clone measurement times
+
+# dfSimsVid[1002, :_t]
 
 #endregion
 
@@ -509,7 +550,7 @@ Axis(
     xlabel="mean age at measurement",
     # title="number of bins: "*string(bins)
 )
-ylims!(0,0.15)
+# ylims!(0,0.15)
 ρFit = corspearman(_tBin[.!isnan.(λAv_tBin)], λAv_tBin[.!isnan.(λAv_tBin)])
 ρPearsonFit = cor(_tBin[.!isnan.(λAv_tBin)], λAv_tBin[.!isnan.(λAv_tBin)])
 # Perform linear regression
@@ -593,24 +634,6 @@ display(figFitnessDist)
 figname="simsVariantFitnessDistribution.png"
 figloc="./Figures/ManuscriptDrafts/"
 # save(figloc*figname, figFitnessDist)
-#endregion
-
-## ========================================
-#region = Sim Data masks
-
-_posMask = dfVid[!,:fitType] .== "positive logistic"
-_negMask = dfVid[!,:fitType] .== "negative logistic"
-_satMask = dfVid[!,:fitType] .== "constant"
-_timeMask = [dfVCur[:_t][1]<90 for dfVCur in eachrow(dfVid)]
-# _λMask = [dfVCur[:γ]<grThreshold for dfVCur in eachrow(dfVid)]
-_fitMask = dfVid[!,:goodFit]
-sum(_fitMask)
-
-size(dfVid[_satMask.&&_fitMask,:],1) / size(dfVid,1)
-size(dfVid[_posMask.&&_fitMask,:],1) / size(dfVid,1)
-size(dfVid[_negMask.&&_fitMask,:],1) / size(dfVid,1)
-size(dfVid[.!_fitMask,:],1) / size(dfVid,1)
-
 #endregion
 
 ## --------------------------------------------------
@@ -718,5 +741,42 @@ display(figTrajTime)
 figname="trajectoryTypes_MeanFitness_Time.svg"
 figloc="./Figures/ManuscriptDrafts/"
 # save(figloc*figname, figTrajTime)
+
+#endregion
+
+## ----------------------------------------
+#region - Correlation Negative fitness vs initial frequency
+using HypothesisTests
+using GLM
+dfSimsVid[_negMaskSims,:_t]
+colorCycle(i) = Makie.wong_colors()[i]
+vafIn_vidNeg = [dfVidCur[:vaf_t][1] for dfVidCur in eachrow(dfSimsVid[_negMaskSims,:])]
+s_vidNeg = [dfVidCur[:γ] for dfVidCur in eachrow(dfSimsVid[_negMaskSims,:])]
+figNegFitCor = Figure(fotnsize=24)
+Axis(figNegFitCor[1,1],
+    xscale=log10,
+    xlabel="Clone size",
+    ylabel="(negative) fitness strength"
+)
+# xlims!(-.01,0.8)
+xlims!(1E-3,1)
+ylims!(0,0.5)
+# scatter!(vafIn_vidNeg, -s_vidNeg, color=colorCycle(2))
+scatter!(vafIn_vidNeg, -s_vidNeg, color=colorCycle(2))
+display(figNegFitCor)
+
+cor(-s_vidNeg, log.(vafIn_vidNeg))
+pvalue(CorrelationTest(
+    -s_vidNeg,
+    log.(vafIn_vidNeg),
+    ))
+
+
+cor(vafIn_vidNeg,-s_vidNeg)
+corspearman(vafIn_vidNeg,-s_vidNeg)
+pvalue(CorrelationTest(
+    -s_vidNeg,
+    vafIn_vidNeg,
+    ))
 
 #endregion

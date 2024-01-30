@@ -27,16 +27,22 @@ function runABCParticles(runModelSim::Function, priorDists_pid::NamedTuple, nPar
     return particle_tid
 end
 
-function runParticle(runModelSim::Function, pDist_pid::NamedTuple, ctrlParams::Dict; verbose::Bool=false)
-    pVal_pid = [rand(pDist) for pDist in pDist_pid]
+function runParticle(runModelSim::Function, pDist_pid::NamedTuple, ctrlParams::Dict; verbose::Bool=false, randParams::Bool=true)
+
+    pVal_pid = 
+        if randParams
+            [rand(pDist) for pDist in pDist_pid]
+        else
+            pDist_pid
+        end
+    paramSet = (; zip(keys(pDist_pid), pVal_pid)...)
+    simResults = runModelSim(paramSet, ctrlParams)
     if verbose
         println("parameter values of particle:")
-        for (i,pid) in enumerate(propertynames(pDist_pid))
+        for (i,pid) in enumerate(keys(pDist_pid))
             println(string(pid)*": ", string(pVal_pid[i]))
         end
     end
-    paramSet = (; zip(keys(pDist_pid), pVal_pid)...)
-    simResults = runModelSim(paramSet, ctrlParams)
     return Particle(
         paramSet,
         simResults

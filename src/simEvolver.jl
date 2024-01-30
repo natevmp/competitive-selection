@@ -157,7 +157,12 @@ end
 function evolvePopSim(params::Dict, model::Model; runs::Int=1, _trackerVariant::Union{Vector{U},Vector{Tuple{U,S}}}=Vector{Float64}[], noDiffusion::Bool=false) where {U,S<:Real}
     
     N = params[:N]
-    α = params[:α]
+    α =
+        if haskey(params, :α)
+            params[:α]
+        else
+            1/params[:τ]
+        end
     s = params[:s]
     T = params[:T]
     μ = params[:μ]

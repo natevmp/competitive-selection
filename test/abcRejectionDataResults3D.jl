@@ -11,26 +11,32 @@ using .AnalysisTools
 using JLD2, CSV, DataFrames
 using CairoMakie
 using Distributions
+using Glob, Statistics, ProgressMeter
 
 ## ========================================
 #region = Parameter values
 
-ctrlParams = load("./Data/SimResults/ParticlesV2_N100000_7076/parameters.jld2", "ctrlParams")
+simDir = "C:/Users/monper02/Documents/Datasets/CompetitiveSelectionSimResults/Particles3D_7076/"
+ctrlParams = load(simDir*"parameters.jld2", "ctrlParams")
 
 #endregion
 
 ## ----------------------------------------
 #region - Get Data metrics
 
-# df = DataFrame(CSV.File("./Data/ALLvariants_exclSynonymous_Xadj.txt"))
-# DataStructuring.structureData!(df)
-# dfVid = DataStructuring.sortDataPerVariant(df)
-# DataStructuring.fitAllModels!(dfVid, ctrlParams[:params][:N], ["positive logistic", "negative logistic", "constant"]; errorQuantile=0.99)
-# save(
-#     "./Data/dfDataFittedVid"*agesString*".jld2", Dict(
-#         "dfVid"=>dfVid
-#     )
-# )
+CALCDATAMETRICS = false
+
+if CALCDATAMETRICS
+    df = DataFrame(CSV.File("./Data/ALLvariants_exclSynonymous_Xadj.txt"))
+    DataStructuring.structureData!(df)
+    dfVid = DataStructuring.sortDataPerVariant(df)
+    DataStructuring.fitAllModels!(dfVid, ctrlParams[:params][:N], ["positive logistic", "negative logistic", "constant"]; errorQuantile=0.99)
+    save(
+        "./Data/dfDataFittedVid"*agesString*".jld2", Dict(
+            "dfVid"=>dfVid
+        )
+    )
+end
 dfVid = load("./Data/dfDataFittedVid.jld2", "dfVid")
 tBounds = ctrlParams[:tBounds]
 agesString = string(tBounds[1])*string(tBounds[2])
@@ -48,53 +54,45 @@ _sEdges, nData_s = AnalysisTools.distbin(sFit_vid,
 )
 
 dataMetrics = (nData_f, nData_s)
+
 #endregion
 
 ## ========================================
 #region = Get simulation particle results
 
-# using Glob
-# using Statistics, ProgressMeter
+SAVEPARTICLEVECTOR = false
+if SAVEPARTICLEVECTOR
+    fname_pid = glob("particle*", simDir)
 
-folder = "./Data/simResults/ParticlesV2_N100000_7076/"
+    typeParticle = typeof(load(fname_pid[1], "particle"))
+    particle_pid = Vector{typeParticle}(undef, length(fname_pid))
+    @showprogress for (pid, fname) in enumerate(fname_pid)
+        particle_pid[pid] = load(fname, "particle")
+    end
 
-# fname_pid = glob("particle*", folder)
-
-# particle1 = load(fname_pid[1], "particle")
-# typeParticle = typeof(particle1)
-
-# particle_pid = Vector{typeParticle}(undef, length(fname_pid))
-# @showprogress for (pid, fname) in enumerate(fname_pid)
-#     particle_pid[pid] = load(fname, "particle")
-# end
-
-# save(
-#     folder*"/simParticles.jld2",
-#     "particle_pid", particle_pid
-# )
-
+    save(
+        simDir*"/simParticlesSizeFitnessDist.jld2",
+        "particle_pid", particle_pid
+    )
+end
 particle_pid=load(
-    folder*
-    "simParticles.jld2",
+    simDir*
+    "simParticlesSizeFitnessDist.jld2",
     "particle_pid",
 )
 
 #endregion
 
-##
-scatterlines([29,39,48,63,75,76,77,81], [0,1,0,1,18,12,15,13], axis=(xlabel="time", ylabel="number of variants"))
+## ----------------------------------------
+#region - Test parameter prior distributions
 
 
+for par in keys(particle_pid[1].paramSet)
+    display(hist([particle.paramSet[par] for particle in particle_pid], bins=100, axis=(xlabel=string(par),)))
+end
 
-##
 
-particle = particle_pid[1]
-propertynames(particle)
-
-hist([particle.paramSet[1] for particle in particle_pid], bins=100)
-
-length(particle.simResults)
-particle.simResults[1]
+#endregion
 
 
 ## ----------------------------------------
@@ -108,21 +106,11 @@ particle_pid[1].simResults
 length(particle_pid)
 eltype(particle_pid)
 
-# ctrlParams[:thresholds] = (Inf, (Inf, Inf)) # all particles
-# ctrlParams[:thresholds] = (0.0019, (1, 1))
-# ctrlParams[:thresholds] = (0.004, (0.001, 0.0157)) # maximize fit to logistic fitness
-# ctrlParams[:thresholds] = (0.0012, (0.003, 0.02)) # maximize fit to size dist
-ctrlParams[:thresholds] = (0.00136, (0.001, 0.018)) # intermediate fit logistic and size dist
-ctrlParams[:tEarly] = 40
-ctrlParams[:tLate] = 70
-ctrlParams[:nVarsBoundEarly] = (0,3)
-ctrlParams[:nVarsBoundLate] = (5,25)
-# ctrlParams[:nVarsBoundEarly] = (0,100)
-# ctrlParams[:nVarsBoundLate] = (0,100)
-
-# ctrlParams[:thresholds] = (5, (1, 1))
-# ctrlParams[:tEarly] = 50
-# ctrlParams[:tLate] = 70
+thresholdAllParticles = (Inf, (Inf, Inf)) # all particles
+thresholdIntermediate = (0.0009, (0.0015, 0.018)) # intermediate fit logistic and size dist 
+thresholdFitnessDist = (0.1, (0.001, 0.0175)) # maximize fit to fitness distribution
+thresholdSizeDist = (0.0005, (1, 1)) # maximize fit to size distribution
+ctrlParams[:thresholds] = thresholdSizeDist
 
 _s = _sEdges[1:end-1] .+ Float64(_sEdges.step)/2
 accepted_pid = ABCRejection.testABCParticles(
@@ -130,13 +118,6 @@ accepted_pid = ABCRejection.testABCParticles(
     particle_pid,
     dataMetrics,
     ctrlParams[:thresholds],
-    simRes->CompetitiveSelection.checkConstraintsDetectableVariants(
-        simRes,
-        ctrlParams[:tEarly],
-        ctrlParams[:nVarsBoundEarly],
-        ctrlParams[:tLate],
-        ctrlParams[:nVarsBoundLate]
-    )
 )
 println("number of accepted particles: ", sum(accepted_pid))
 
@@ -158,69 +139,97 @@ set_theme!(Theme(fontsize = 24))
 
 ## ----------------------------------------
 #region - 2d accepted particle scatterplots
-rsc=0.9
-figABCRes = Figure(resolution=(rsc*800,rsc*1000))
-bounds = (s=ctrlParams[:sBounds], σ=ctrlParams[:σBounds], μ=ctrlParams[:μBounds])
+
+SAVEFIG = false
+
 labels = (
-    # s="mean clone fitness",
-    s="s",
-    # σ="std clone fitness",
     σ="σ",
-    # μ="clone birth rate/year"
     μ="μ",
+    τ="τ",
 )
 parlimits = (
-    s=(0, 0.4),
-    σ=(0,0.1),
-    μ=(0,14),
+    σ=ctrlParams[:σBounds],
+    μ=ctrlParams[:μBounds],
+    τ=ctrlParams[:τBounds],
 )
-for (i, par) in enumerate([:s, :σ, :μ])
-    Axis(figABCRes[i,1],
-        xlabel=labels[par],
-        # ylabel=(i==1 ? "counts" : ""),
-        title=(i==1 ? "marginal distribution" : ""),
+
+parPairs = [
+    (1, 2),
+    (1, 3),
+    (2, 3),
+]
+
+fig = Figure(size=(1300,800))
+for (i, pair) in enumerate(parPairs)
+    row = (i-1)/3+1 |>floor|>Int
+    col = (i-1)%3+1
+    Axis(fig[row,col],
+        xlabel=labels[pair[1]],
+        ylabel=labels[pair[2]]
     )
-    hist!(val_aid_param[:,i],
-        # color=:gray,
-        color=Makie.wong_colors()[1],
-        strokewidth = 2,
-        strokecolor = Makie.wong_colors()[1],
+    scatter!(val_aid_param[:,pair[1]], val_aid_param[:,pair[2]])
+    xlims!(parlimits[pair[1]]...)
+    ylims!(parlimits[pair[2]]...)
+end
+for (i, par) in enumerate([:σ, :μ, :τ])
+    Axis(fig[2,i],
+        xlabel=string(par),
+        ylabel="counts",
     )
+    hist!(val_aid_param[:,i])
     xlims!(parlimits[par]...)
 end
+fitName, figureTitle = 
+    if ctrlParams[:thresholds]==thresholdFitnessDist
+        "FitnessDist", "Single ABC - fitness dist"
+    elseif ctrlParams[:thresholds]==thresholdSizeDist
+        "SizeDist", "Single ABC - size dist"
+    elseif ctrlParams[:thresholds]==thresholdIntermediate
+        "Intermediate", "Single ABC - size dist + fitness dist"
+    else
+        error()
+    end
+Label(fig[0, :], figureTitle, fontsize = 40)
+display(fig)
+filename = "Figures/abc3d"*fitName*".png"
+SAVEFIG && save(filename, fig)
 
-# s -> σ
-Axis(figABCRes[1,2],
-    xlabel="s",
+#endregion
+
+## ----------------------------------------
+#region - s-sigma relationship posterior
+
+particle = particle_pid[1]
+particle.paramSet[:τ]
+particle.paramSet[:τ]*ctrlParams[:sFixed]
+
+figSigmaS = Figure(fontsize=24)
+Axis(figSigmaS[1,1],
+    xlabel="η",
     ylabel="σ",
-    title="accepted particles"
 )
-xlims!(parlimits[:s]...)
-ylims!(parlimits[:σ]...)
-scatter!(val_aid_param[:,1], val_aid_param[:,2])
-# ylims!(0.03, 0.17)
+scatter!(val_aid_param[:,3].*ctrlParams[:sFixed], val_aid_param[:,1])
+# xlims!(parlimits[pair[1]]...)
+# ylims!(parlimits[pair[2]]...)
+display(figSigmaS)
 
-# σ -> μ
-Axis(figABCRes[2,2], 
-    xlabel="σ",
-    ylabel="μ",
+figSigmaSHist = Figure(fontsize=24)
+Axis(figSigmaSHist[1,1],
+    xlabel="σ/η",
 )
-xlims!(parlimits[:σ]...)
-ylims!(parlimits[:μ]...)
-scatter!(val_aid_param[:,2], val_aid_param[:,3])
+hist!(val_aid_param[:,1] ./ (val_aid_param[:,3].*ctrlParams[:sFixed]))
+# xlims!(parlimits[pair[1]]...)
+# ylims!(parlimits[pair[2]]...)
+display(figSigmaSHist)
 
-# μ -> s
-Axis(figABCRes[3,2], 
-    xlabel="μ",
-    ylabel="s",
+figSigmaTauHist = Figure(fontsize=24)
+Axis(figSigmaTauHist[1,1],
+    xlabel="σ/τ",
 )
-xlims!(parlimits[:μ]...)
-ylims!(parlimits[:s]...)
-scatter!(val_aid_param[:,3], val_aid_param[:,1])
-
-display(figABCRes)
-
-# save("./Figures/ManuscriptDrafts/Figure 3/abcResults.svg", figABCRes)
+hist!(val_aid_param[:,1] ./ (val_aid_param[:,3]))
+# xlims!(parlimits[pair[1]]...)
+# ylims!(parlimits[pair[2]]...)
+display(figSigmaTauHist)
 
 #endregion
 
@@ -229,7 +238,7 @@ display(figABCRes)
 using ColorSchemes
 
 rsc = 0.8
-figFitness = Figure(fontsize=24, resolution=(rsc*800,rsc*600))
+figFitness = Figure(fontsize=24, size=(rsc*800,rsc*600))
 Axis(figFitness[1,1],
     xlabel="logistic fitness s*",
     ylabel="density",
@@ -262,17 +271,17 @@ axislegend(position=:rt)
 xlims!(-0.5,0.8)
 ylims!(0,0.012)
 display(figFitness)
-
-# save("./Figures/ManuscriptDrafts/Figure 3/fitDistCompare.png", figFitness, px_per_unit=2)
+filename = "Figures/fitnessDist3D_"*fitName*".png"
+SAVEFIG && save(filename, figFitness)
 
 #endregion
 
 ## ----------------------------------------
 #region - size distribution accepted/rejected
-
+rsc=1.
 ColorSchemes.Blues_3[2]
 _f = _fEdges[1:end-1] .+ Float64(_fEdges.step)/2
-figSizeDist = Figure(fontsize=24, resolution=(rsc*800,rsc*600))
+figSizeDist = Figure(fontsize=24, size=(rsc*800,rsc*600))
 Axis(figSizeDist[1,1],
     xlabel="variant allele frequency",
     ylabel="density of variants",
@@ -297,9 +306,8 @@ scatterlines!(_f, nData_f, label="Fabre data")
 axislegend(position=:rt)
 display(figSizeDist)
 
-figname="sizeDistABCParticles.png"
-# save("./Figures/DataFits/ABC/"*figname, figSizeDist)
-# save("./Figures/ManuscriptDrafts/Figure 3/"*figname, figSizeDist, px_per_unit=2)
+filename = "Figures/SizeDist3D_"*fitName*".png"
+SAVEFIG && save(filename, figSizeDist)
 
 #endregion
 
@@ -307,16 +315,16 @@ figname="sizeDistABCParticles.png"
 #region - true fitness distribution
 
 gammaMeanStdToShapeScale(mean, std) = ((mean/std)^2, std^2/mean)
-_s = range(0,0.25,length=300)
+_s = range(0,0.2,length=300)
 prob_s_pid = Array{Float64,2}(undef, length(_s), length(particle_pid))
 for (i,particle) in enumerate(particle_pid)
-    (α, θ) = gammaMeanStdToShapeScale(particle.paramSet[:s], particle.paramSet[:σ])
+    (α, θ) = gammaMeanStdToShapeScale(ctrlParams[:sFixed], particle.paramSet[:σ] / particle.paramSet[:τ])
     prob_s_pid[:,i] = pdf.(Gamma(α, θ), _s)
 end
 
 #
 
-figFitDist = Figure(fontsize=24, resolution=(rsc*800,rsc*600))
+figFitDist = Figure(fontsize=24, size=(rsc*800,rsc*600))
 Axis(
     figFitDist[1,1],
     xlabel="s",
@@ -324,12 +332,12 @@ Axis(
     # limits=((_s[1],_s[end]), nothing),
 )
 xlims!(_s[1],_s[end])
-ylims!(0, nothing)
-for pid in findall(.!accepted_pid)
-    lines!(_s, prob_s_pid[:,pid],
-    color=(:grey60,0.2),
-    )
-end
+ylims!(0, 100)
+# for pid in findall(.!accepted_pid)
+#     lines!(_s, prob_s_pid[:,pid],
+#     color=(:grey60,0.2),
+#     )
+# end
 for pid in findall(accepted_pid)
     lines!(_s, prob_s_pid[:,pid],
     color=(Makie.wong_colors()[1],0.55),
@@ -338,7 +346,7 @@ end
 display(figFitDist)
 #
 figname = "fitnessDistributionABCResults.png"
-# save("./Figures/ManuscriptDrafts/"*figname, figFitDist, px_per_unit=2)
+SAVEFIG && save("./Figures/ManuscriptDrafts/"*figname, figFitDist, px_per_unit=2)
 
 #endregion
 
@@ -368,7 +376,7 @@ end
 display(figDetectableClones)
 
 figname = "abcDetectableClonesAccepted.png"
-# save("./Figures/ManuscriptDrafts/"*figname, figDetectableClones, px_per_unit=2)
+SAVEFIG && save("./Figures/ManuscriptDrafts/"*figname, figDetectableClones, px_per_unit=2)
 
 #endregion
 

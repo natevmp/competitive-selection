@@ -80,19 +80,19 @@ end
 function boundsMLE(model::ModelFit{LogisticModel, NegativeExpansion}, _t, vaf_t)
     # b0[1]=t0, b0[2]=γ, b0[3]=x0
     ([-10, -10, 0],
-    [_t[1], 0, 0.49])
+    [_t[1], 0, 0.4999999])
 end
 
 function boundsMLE(model::ModelFit{MaxAdjustedLogisticModel, PositiveExpansion}, _t, vaf_t)
     # b0[1]=t0, b0[2]=γ, b0[3]=xF
     ([0, 0, 1E-3],
-    [_t[1], 2, 0.49])
+    [_t[1], 2, 0.4999999])
 end
 
 function boundsMLE(model::ModelFit{ConstantModel, NullExpansion}, _t, vaf_t)
     # b0[1]=x
     ([0,],
-    [0.49,])
+    [0.4999999,])
 end
 
 # function boundsMLE(model::ModelFit{MaxAdjustedLogisticModel, NegativeExpansion}, _t, vaf_t)
