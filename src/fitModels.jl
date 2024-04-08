@@ -44,7 +44,7 @@ end
 function setInitialParamsMLE!(model::ModelFit{LogisticModel, NegativeExpansion}, _t, vaf_t, Nf)
     model.shape.t0 = 1.
     model.shape.γ = -1.
-    model.shape.x0 = vaf_t[1]
+    model.shape.x0 = vaf_t[1]< 0.49 ? vaf_t[1] : 0.49
     return [model.shape.t0, model.shape.γ, model.shape.x0]
 end
 # b0[1]=t0, b0[2]=γ, b0[3]=xF
@@ -66,7 +66,7 @@ end
 # b0[1]=t0, b0[2]=γ, b0[3]=x0, b0[4]=xF
 function setInitialParamsMLE!(model::ModelFit{ConstantModel, NullExpansion}, _t, vaf_t, Nf)
     model.shape.γ = 0
-    model.shape.x = vaf_t[1]
+    model.shape.x = vaf_t[1]< 0.5 ? vaf_t[1] : 0.49
     return [model.shape.x,]
 end
 

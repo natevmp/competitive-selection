@@ -185,59 +185,88 @@ function sampleSimTimepoint(sim::RODESolution, t::Real, nSamples::Int, f0::Float
     return vaf_cid
 end
 
+function drawVariantsRandomly(nVariants::Int, nVarsMax::Union{Nothing,Int})
+    S = isnothing(nVarsMax) ? nVariants : minimum((nVarsMax, nVariants)) # if the number of variants is less than `nVarsMax`, use that
+    vid_vidS = randperm(nVariants)[1:S]
+    return vid_vidS
+end
+
+function chooseExclusiveRand(v_i, compare_j)
+    vSelect = v_i[rand(1:end)]
+    if !in(vSelect, compare_j)
+        return vSelect
+    else 
+        return chooseExclusiveRand(v_i, compare_j)
+    end
+end
+function chooseExclusiveNext(i, v_i, compare_j)
+    vSelect = v_i[i]
+    if !in(vSelect, compare_j)
+        return vSelect
+    else
+        if i+1>length(v_i) return vSelect end
+        return chooseExclusiveNext(i+1, v_i, compare_j)
+    end
+end
+
+function drawVariantsWithPriority(
+        s_vid::AbstractVector{Float64},
+        nVarsMax::Union{Nothing,Int}=nothing,
+        sortBias::Real=1.,
+    )
+    vid_vFit = (1:length(s_vid))[sortperm(s_vid, rev=true)]
+    # vid_vRan = randperm(length(s_vid))
+    S = 
+        if isnothing(nVarsMax)
+            length(s_vid)
+        else
+            minimum((nVarsMax, length(s_vid))) # if the number of existing variants is less than `nVarsMax`, use that
+        end
+    # vid_vidS = [rand()<=sortBias ? vid_vFit[i] : vid_vRan[i] for i in 1:S]
+    vid_vidS = Vector{Int}(undef, S)
+    for i in 1:S
+        if rand()<=sortBias
+            # select next fittest variant
+            vid_vidS[i] = chooseExclusiveNext(i, vid_vFit, vid_vidS[1:i-1])
+        else
+            # select next random variant
+            vid_vidS[i] = chooseExclusiveRand(vid_vFit, vid_vidS[1:i-1])
+        end
+    end
+
+    return vid_vidS # variant ID's of sampled variants
+end
+
 function sampleSimTrajectories(sol::RODESolution, t::Real;
     tStep=1.,
     nTimeSteps::Int=4,
     freqCutoff=0.01,
     nVarsMax::Union{Nothing,Int}=nothing,
-    sortVars::Bool=false, # determines whether largest variants should be prioritized in sampling
+    s_vid::Union{Vector{Float64},Nothing}=nothing, # if passed, variant innate fitness will be used to determine sampling priority
+    sortBias::Real=0, # determines the tendency of the sampler to bias towards the fittest mutants,
+    verbose::Bool=false
     )
-    _cid = findall(sol(t) .>= freqCutoff) # clone indices of clones > freqCutoff
-    # reduce number of detected variants if nVarsMax is specified
-    if !isnothing(nVarsMax) && length(_cid)>nVarsMax
-        if sortVars # sort indices so they to go from large to small
-            _cid = _cid[sortperm(sol(t)[_cid],rev=true)]
-        else # shuffle indices so clones are picked randomly
-            shuffle!(_cid)
-        end
-        _cid = _cid[1:nVarsMax]
+    obs_vid = sol(t) .>= freqCutoff
+    if verbose
+        println("total variants: ", length(obs_vid))
+        println("observable variants:", sum(obs_vid))
     end
+    vidO_vidS = 
+        if isnothing(s_vid)
+            drawVariantsRandomly(sum(obs_vid), nVarsMax)
+        else
+            verbose && println("drawing variants with priority bias=$(sortBias)...")
+            drawVariantsWithPriority(s_vid[obs_vid], nVarsMax, sortBias)
+        end
     _t = range(t; length=nTimeSteps, step=tStep)
-    x_t_cid = Array{Float64,2}(undef, nTimeSteps, length(_cid))
+    x_t_vidS = Array{Float64,2}(undef, nTimeSteps, length(vidO_vidS))
     for (i,tt) in enumerate(_t)
-        for (j,x) in enumerate(sol(tt)[_cid])
-            x_t_cid[i,j] = x
+        for (j,x) in enumerate(sol(tt)[obs_vid][vidO_vidS])
+            x_t_vidS[i,j] = x
         end
     end
-    return _t, _cid, x_t_cid
+    return _t, x_t_vidS
 end
-
-# function fitSamplesGrowth(solEns::Union{EnsembleSolution,Vector{T}} where T, params::Dict; tMeasure::Union{Real,Tuple{Real, Real}}=(50,80), timeLimit=1.0)
-#     Nf = params[:N]
-#     tStep = 1.
-#     nTimeSteps = 4
-#     fit_tλ_cid = ElasticArray{Float64}(undef,2,0)
-#     for sim in solEns
-#         t = let
-#             if length(tMeasure)<2
-#                 tMeasure
-#             else
-#                 tMeasure[1]+rand()*(tMeasure[2]-tMeasure[1])
-#             end
-#         end # first measurement time point
-#         _t, _cid, vaf_t_cid = sampleSim(sim; t, tStep, nTimeSteps)
-#         for i in eachindex(_cid)
-#             # fit = fitLogGrowth(_t, vaf_t_cid[:, i], Nf)
-#             # append!(λ_tVaf_cid, [t, fit.param[2]])
-#             vaf_t = vaf_t_cid[:, i]/2
-#             vaf_t[1] > 0.45 && (vaf_t[1] = 0.45)
-#             fit = DataStructuring.fitLogGrowthMLE!(_t, vaf_t, fill(1000, length(_t)), Nf; timeLimit)
-#             _β = Optim.minimizer(fit)
-#             append!(fit_tλ_cid, [t, _β[2]])
-#         end
-#     end
-#     return fit_tλ_cid
-# end
 
 struct StepUniform <: Sampleable{Univariate,Continuous}
     edges::Vector{Float64}
@@ -251,14 +280,16 @@ function Base.rand(rng::AbstractRNG, d::StepUniform)
 end
 
 function fitSamplesGrowth(solEns::Union{EnsembleSolution,Vector{T}} where T, params::Dict;
-    tMeasure::Union{Real,Tuple{Real, Real},Tuple{AbstractArray,AbstractArray}}=(50,80), # time measurement range
-    timeLimit=1.0,
-    nTimeSteps=4,
-    tStep=1.,
-    errorQuantile=0.99,
-    freqCutoff=0.01,
-    nVarsMax=4,
-    sortVars::Bool=false, # determines whether largest variants should be prioritized in sampling
+        tMeasure::Union{Real,Tuple{Real, Real},Tuple{AbstractArray,AbstractArray}}=(50,80), # time measurement range
+        timeLimit=1.0,
+        nTimeSteps=4,
+        tStep=1.,
+        errorQuantile=0.99,
+        freqCutoff=0.01,
+        nVarsMax=4,
+        s_vid_Sim::Union{Nothing,Vector{Vector{Float64}}}=nothing, # if passed, variant innate fitness will be used to determine sampling priority
+        sortBias::Real=0., # determines the tendency of the sampler to bias towards the fittest mutants
+        verbose::Bool=false,
     )
     Nf = params[:N]
     dfVid = DataFrame(
@@ -267,7 +298,8 @@ function fitSamplesGrowth(solEns::Union{EnsembleSolution,Vector{T}} where T, par
         cov_t=Vector{Int64}[]
     )
 
-    t_pid = let # first measurement time of every patient
+    # first measurement time of every patient
+    t_pid = let
         if length(tMeasure)<2
             tMeasure
         elseif eltype(tMeasure) <: Real #in this case draw from uniform with boundaries given by `tMeasure`
@@ -277,18 +309,32 @@ function fitSamplesGrowth(solEns::Union{EnsembleSolution,Vector{T}} where T, par
             rand(dist, length(solEns))
         end
     end
-
+    if verbose
+        println("t_pid: ")
+        display(t_pid)
+    end
+    # sample simulation and fit variants
     for (j,sol) in enumerate(solEns)
         t = t_pid[j] # first measurement time point
-        _t, _cid, x_t_cid = sampleSimTrajectories(sol, t; tStep, nTimeSteps, freqCutoff, nVarsMax)
-        for i in eachindex(_cid)
-            vaf_t = x_t_cid[:, i]/2
+        _t, x_t_cid = sampleSimTrajectories(
+            sol, t;
+            tStep,
+            nTimeSteps,
+            freqCutoff,
+            nVarsMax,
+            s_vid = !isnothing(s_vid_Sim) ? s_vid_Sim[j] : nothing,
+            sortBias,
+            verbose,
+        )
+        verbose && println("detected variants: ", size(x_t_cid,2))
+        for cid in axes(x_t_cid, 2)
+            vaf_t = x_t_cid[:, cid]/2
             # make sure vaf>0.5 and vaf<0 cases are taken care of
-            for (i,vaf) in enumerate(vaf_t)
+            for (tid,vaf) in enumerate(vaf_t)
                 if vaf>=0.5
-                    vaf_t[i] = 0.499999
+                    vaf_t[tid] = 0.49999
                 elseif vaf<=0
-                    vaf_t[i] = 0.000001
+                    vaf_t[tid] = 0.000001
                 end
             end
             cov_t = fill(1000, length(_t))
@@ -333,18 +379,29 @@ end
 
 Sample variant trajectories from a single simulation with binomial sampling on the VAFs at times `_t`. Returns the variant id's `vid_j` of the observed variants, with a maximal length of `nSamples`.
 """
-function sampleSimTimepoints(sim::RODESolution, _t::AbstractVector, nSamples::Int, coverage::Int; fMin::Float64=0., fMax::Float64=1.)
+function sampleSimTimepoints(sim::RODESolution, _t::AbstractVector, nSamples::Int, coverage::Int; 
+        fMin::Float64=0.,
+        fMax::Float64=1.,
+        s_vid::Union{Nothing, AbstractVector{Float64}}=nothing,
+        sortBias::Real=0.,
+    )
     # `x`∈[0,1]; not to be confused with `vaf`∈[0,0.5]
     x_vid_T = sim(_t)
-    # The order of obsrvation, i.e. variant `vid` is observed `i-th`.
-    vid_i = shuffle(1:length(x_vid_T[1]))
+    # select only observable variants
+    obs_vid = fMin .<= x_vid_T[1] .<= fMax
+    vidO_vidS = 
+        if !isnothing(s_vid)
+            # we take 4*nSamples to allow for the possibility of variants being lost later during binomial sampling
+            drawVariantsWithPriority(s_vid[obs_vid], 4*nSamples, sortBias)
+        else
+            drawVariantsRandomly(length(s_vid[obs_vid]), 4*nSamples)
+        end
     j = 0   # index for accepted observed variants
     x_t_VidSampled = Vector{Vector{Float64}}(undef, nSamples)
-    for vid in vid_i
-        (x_vid_T[1][vid]<fMin || x_vid_T[1][vid]>fMax) && continue
-        x_t = [x_vid[vid] for x_vid in x_vid_T]
+    for vidO in vidO_vidS
+        x_t = [x_vid[obs_vid][vidO] for x_vid in x_vid_T]
         xObs_t = (x -> sampleFreqFromFreq(x, coverage)).(x_t)
-        #check whether variant has enough nonzero observations; if not skip to next variant
+        #check whether variant has enough nonzero observations; if not skip to next variant (this is why _vidS has length 4*nSamples)
         sum(xObs_t.==0)>=length(_t)/2 && continue
         j+=1
         x_t_VidSampled[j] = xObs_t
@@ -361,35 +418,43 @@ end
 
 Samples variants from a single simulation with binomial sampling on the VAFs, at a single timepoint `t`.
 """
-function sampleSimTimepoint(sim::RODESolution, childVid_child_Vid::Vector{Vector{T}} where T<:Integer, t::Real, nSamples::Int, coverage::Int; fMin::Float64=0., fMax::Float64=1.)
-    _vidS = 1:length(sim(t)) |> shuffle
-    # f_vid = sim(t) |> shuffle!
-    f_vid = sim(t)
-    vafObs_j = Float64[]
-    j = 0
-    for vidS in _vidS
-        f = f_vid[vidS]
-        # add size of children (if they exist)
-        for childVid in childVid_child_Vid[vidS]
-            f += f_vid[childVid]
+function sampleSimTimepoint(
+        sim::RODESolution,
+        vid_child_Vid::Vector{Vector{T}} where T<:Integer,
+        t::Real,
+        nSamples::Int,
+        coverage::Int;
+        fMin::Float64=0.,
+        fMax::Float64=1.,
+        s_vid::Union{Nothing, AbstractVector{Float64}}=nothing,
+        sortBias::Real=0.,
+    )
+    obs_vid = fMin .<= sim(t) .<= fMax
+    vidO_vidS = 
+        if isnothing(s_vid)
+            drawVariantsRandomly(length(s_vid[obs_vid]), 4*nSamples)
+        else
+            drawVariantsWithPriority(s_vid[obs_vid], 4*nSamples, sortBias)
         end
-        (f<fMin || f>fMax) && continue
-        # allele frequency of a variant is f/2
-        vafObs = rand(Binomial(coverage, f/2)) / coverage
+    vafObs_j = Vector{Float64}(undef, nSamples)
+    j = 0
+    for vidO in vidO_vidS
+        x = @view(sim(t)[obs_vid])[vidO]
+        # add size of children (if they exist)
+        for vid in vid_child_Vid[obs_vid][vidO]
+            x += sim(t)[vid]
+        end
+        (x<fMin || x>fMax) && continue
+        # allele frequency of a variant is f=x/2
+        vafObs = rand(Binomial(coverage, x/2)) / coverage
         vafObs==0 && continue
-        push!(vafObs_j, vafObs)
         j+=1
+        vafObs_j[j]=vafObs
         j==nSamples && break
     end
-    # for f in f_vid
-    #     (f<fMin || f>fMax) && continue
-    #     # allele frequency of a variant is f/2
-    #     vafObs = rand(Binomial(coverage, f/2)) / coverage
-    #     vafObs==0 && continue
-    #     push!(vafObs_j, vafObs)
-    #     j+=1
-    #     j==nSamples && break
-    # end
+    if j<nSamples
+        return vafObs_j[1:j]
+    end
     return vafObs_j
 end
 
@@ -402,7 +467,14 @@ function buildFamilyArray(parentVid_vid::Vector{T} where T<:Integer)
     return childVid_child_Vid
 end
 
-function sizeDistSims(tMeasure, solEns, parentVid_vid_Sid::Vector{Vector{T}} where T<:Integer, ctrlParams)
+function sizeDistSims(
+    tMeasure,
+    solEns,
+    parentVid_vid_Sid::Vector{Vector{T}} where T<:Integer,
+    s_vid_Sid::Vector{Vector{Float64}},
+    ctrlParams;
+    sortBias=0.,
+    )
     # -------- sample sims --------
     vaf_vidS = Vector{Float64}(undef, ctrlParams[:simRuns]*ctrlParams[:nSamples])
     vCur = 1
@@ -410,8 +482,15 @@ function sizeDistSims(tMeasure, solEns, parentVid_vid_Sid::Vector{Vector{T}} whe
     for (sid,sol) in enumerate(solEns)
         childVid_child_Vid = buildFamilyArray(parentVid_vid_Sid[sid])
         f_vidSimSample = sampleSimTimepoint(
-                sol, childVid_child_Vid, tMeasure, ctrlParams[:nSamples], ctrlParams[:coverage];
-                fMin=2*ctrlParams[:fMin], fMax=2*ctrlParams[:fMax]
+                sol,
+                childVid_child_Vid,
+                tMeasure,
+                ctrlParams[:nSamples],
+                ctrlParams[:coverage];
+                fMin = 2*ctrlParams[:fMin],
+                fMax = 2*ctrlParams[:fMax],
+                s_vid = s_vid_Sid[sid],
+                sortBias = sortBias,
             )
         vNext += length(f_vidSimSample)
         vaf_vidS[vCur:vNext-1] .= f_vidSimSample
@@ -428,7 +507,13 @@ function sizeDistSims(tMeasure, solEns, parentVid_vid_Sid::Vector{Vector{T}} whe
     return n_f
 end
 
-function fitTrajectoriesFitness(tMeasure, solEns, ctrlParams)
+function fitTrajectoriesFitness(
+        tMeasure,
+        solEns,
+        s_vid_Sid::Vector{Vector{Float64}},
+        ctrlParams;
+        sortBias=0.
+    )
     _t = range(tMeasure-(ctrlParams[:nTimeSteps]*ctrlParams[:tStep])/2, tMeasure+(ctrlParams[:nTimeSteps]*ctrlParams[:tStep])/2, length=ctrlParams[:nTimeSteps])
     if _t[end] > solEns[1].t[end]
         error("Error: fit range exceeds maximum simulation time.")
@@ -442,7 +527,11 @@ function fitTrajectoriesFitness(tMeasure, solEns, ctrlParams)
         # sample trajectories from current sim
         vaf_t_VidSimCur = sampleSimTimepoints(
             sim, _t, ctrlParams[:nSamples], ctrlParams[:coverage];
-            fMin=2*ctrlParams[:fMin], fMax=2*ctrlParams[:fMax]
+            fMin=2*ctrlParams[:fMin],
+            fMax=2*ctrlParams[:fMax],
+            # s_vid=simArgs[i,:s_vid],
+            s_vid=s_vid_Sid[i],
+            sortBias,
             )./2
         vNext += length(vaf_t_VidSimCur)
         vaf_t_Vid[vCur:vNext-1] .= vaf_t_VidSimCur
@@ -517,10 +606,29 @@ function runModelSim(paramsABC, ctrlParams)
     ctrlParams[:params] = modelParams
 
     # ============ size distribution ============
-    nVars_f = sizeDistSims(tMeasure, solEns, parentVid_vid_Sid, ctrlParams)
+    sortBias =
+        if haskey(ctrlParams, :sortBias)
+            ctrlParams[:sortBias]
+        else
+            modelParams[:sortBias]
+        end
+    nVars_f = sizeDistSims(
+        tMeasure,
+        solEns,
+        parentVid_vid_Sid,
+        simArgs[!,:s_vid],
+        ctrlParams;
+        sortBias=sortBias,
+    )
 
     # ============ logistic fitness fitting ============
-    nVars_s = fitTrajectoriesFitness(tMeasure, solEns, ctrlParams)
+    nVars_s = fitTrajectoriesFitness(
+        tMeasure,
+        solEns,
+        simArgs[!,:s_vid],
+        ctrlParams;
+        sortBias=sortBias
+    )
 
     # ============ mean number of variants and variant sizes above threshold ============
     f0 = ctrlParams[:fSampleThreshold]
@@ -577,6 +685,22 @@ function compareDataVSim2(dataMetrics, simResults, thresholds, _s)
     return (fDistAccept && sDistAccept)
 end
 
+function distDataVSim(dataMetrics, simResults, _s)
+    
+    # unpack arguments
+    nSim_f, nSim_s, _, _ = simResults
+    nData_f, nData_s = dataMetrics  
+
+    # compare size dist
+    fDist = Distances.evaluate(Distances.chisq_dist, nSim_f, nData_f)
+    
+    # compare fitness dist
+    sAvDist = Distances.evaluate(Distances.euclidean, meanDist(nSim_s, _s), meanDist(nData_s, _s))
+    sStdDist = Distances.evaluate(Distances.euclidean, stdDist(nSim_s, _s), stdDist(nData_s, _s))
+
+    return fDist, sAvDist, sStdDist
+end
+
 function compareVariantNumbers(nData_t, simResults, threshold)
     # unpack arguments
     _, _, nSim_t, _ = simResults
@@ -630,3 +754,31 @@ function checkConstraintsDetectableVariants((nSim_f, nSim_s, nVars_t), tEarly, (
 end
 
 
+## ----------------------------------------
+#region - Plotting AnalysisTools
+
+function simResultArray(sol::RODESolution)
+    _t = sol.t
+    size_t_vid = Array{Float64,2}(undef, length(_t), length(sol[1]))
+    for vid in eachindex(sol[1])
+        for tid in eachindex(sol.u)
+            size_t_vid[tid,vid] = sol.u[tid][vid]
+        end
+    end
+    return _t, size_t_vid
+end
+
+function mullerPlotArgs(sol::RODESolution, detectThreshold)
+    _t, size_t_vid = simResultArray(sol)
+    visible_vid = [any(size_t_vid[:,vid] .> detectThreshold) for vid in eachindex(sol[1])]
+    visible_vid0 = prepend!(copy(visible_vid), [true,])
+    n_t_vid0 = Array{Float64,2}(undef, length(_t), length(sol[1])+1)
+    for i in 1:length(sol[1])
+        n_t_vid0[:,1+i] = [solT[i] for solT in sol.u]
+    end
+    n_t_vid0[:,1] = [1-sum(n_t_vid0[t,2:end]) for t in 1:size(n_t_vid0,1)]
+    n_t_vid0[findall(x->x<0, n_t_vid0)] .= 0
+    return n_t_vid0, visible_vid0
+end
+
+#endregion

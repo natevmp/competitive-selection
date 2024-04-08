@@ -177,10 +177,10 @@ function evolvePopSim(params::Dict, model::Model; runs::Int=1, _trackerVariant::
 
     simArgs = prepareSims(params, model, _trackerVariant, runs)
     # t0Min = minimum([t_vid[1] for t_vid in simArgs[!,:t₀_vid]])
-    # get allocation-free minimum, ingnoring empty arrays
+    # get allocation-free minimum
     t0Min = 1.
     for t_vid in simArgs[!,:t₀_vid]
-        length(t_vid)==0 && continue
+        length(t_vid)==0 && continue # ingnore empty arrays
         t_vid[1]<t0Min && (t0Min = t_vid[1])
     end
 

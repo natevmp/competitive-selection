@@ -28,6 +28,26 @@ function fixArrTypeToType(arr, T::DataType)
 end
 
 """
+    aminoAcidChangeFilter()
+
+Get the amini acid change from data.
+"""
+function aminoAcidChangeFilter(aaChangeDf::AbstractArray{<:String})
+    pattern = r"p\.[^:]*?(?=:|$)"
+    aaChange_i = Vector{String}(undef, length(aaChangeDf))
+    for (i, aaChange) in enumerate(aaChangeDf)
+        m = match(pattern, aaChange)
+        aaChange_i[i] =
+            if isnothing(m)
+                "NA"
+            else
+                m.match
+            end
+    end
+    return aaChange_i
+end
+
+"""
     structureData!(df)
 
 Alter dataframe `df` with variant call information in the following ways:
@@ -40,6 +60,7 @@ function structureData!(df::DataFrame)
     df[!,:TOTALcount] .= fixArrTypeToType(df[!,:TOTALcount], Int64)
     df[!,:WTcount] .= fixArrTypeToType(df[!,:WTcount], Int64)
     df[!,:MUTcount_Xadj] .= fixArrTypeToType(df[!,:MUTcount_Xadj], Float64)
+    df[!,:aaChange] = aminoAcidChangeFilter(df."AAChange.refGene")
     return nothing
 end
 
@@ -250,6 +271,7 @@ function sortDataPerVariant(df::DataFrame)
         cov_t=Vector{Int64}[], # coverage
         n_t=Vector{Float64}[], # mutation counts
         vid=Int16[], # variant id number
+        aaChange=String[], # amino acid change identifier
     )
     vidCur::Int16 = 0
     for pid in _pid
@@ -280,7 +302,8 @@ function sortDataPerVariant(df::DataFrame)
             n_t = subDf[t0Ind:end, :MUTcount_Xadj] # mutation counts
             gene = subDf[1,:Gene]
             vid = vidCur
-            push!(dfVid, (_t, vaf_t, pid, gene, cov_t, n_t, vid))
+            aaChange = subDf[1,:aaChange]
+            push!(dfVid, (_t, vaf_t, pid, gene, cov_t, n_t, vid, aaChange))
         end
     end
     return dfVid
@@ -536,7 +559,8 @@ function fitAllModels!(dfVid::DataFrame, Nf::Real, models::Vector{String}=["posi
         append!(modelVars, fieldnames(modelShapeFromName(name)))
     end
     # varNames = [:γ, :t0, :x0, :xF, :x]
-    varNames = dropdupes(modelVars)
+    varNames = unique(modelVars)
+    unique
     for varName in varNames
         dfVid[:, varName] = Vector{Union{Missing,Float64}}(missing, nVars)
     end

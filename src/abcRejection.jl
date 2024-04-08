@@ -10,6 +10,7 @@ include("dataStructuring.jl")
 using .DataStructuring
 using DifferentialEquations
 using Distances
+using Statistics
 
 export runABCParticles, runParticle, testABCParticles, testParticle
 
@@ -47,6 +48,74 @@ function runParticle(runModelSim::Function, pDist_pid::NamedTuple, ctrlParams::D
         paramSet,
         simResults
     )
+end
+
+function getParticleDistancesPerMetric(
+        distDataVSim::Function,
+        particle_tid::Vector,
+        dataMetrics;
+        nMetrics::Union{Nothing,Int}=nothing
+    )
+    if isnothing(nMetrics) nMetrics=length(dataMetrics) end
+    distance_tid_mid = Array{Float64,2}(undef, length(particle_tid), nMetrics)
+    for (tid, particle) in enumerate(particle_tid)
+        distance_tid_mid[tid, :] = distDataVSim(particle.simResults, dataMetrics) |> collect
+    end
+    return distance_tid_mid
+end
+
+function rankABCParticlesJointQuantiles(
+        distDataVSim::Function,
+        particle_tid::Vector,
+        dataMetrics;
+        nMetrics::Union{Nothing,Int}=nothing,
+        verbose=false,
+    )
+    if isnothing(nMetrics) nMetrics=length(dataMetrics) end
+    distance_tid_mid = getParticleDistancesPerMetric(distDataVSim, particle_tid, dataMetrics; nMetrics)
+    orderStat_tid_mid = Array{Int,2}(undef, (length(particle_tid),nMetrics))
+    # for each metric, sort distances to get order statistic
+    for mid in 1:nMetrics
+        tid_tidSorted = sortperm(distance_tid_mid[:,mid])
+        orderStat_tid_mid[:,mid] = invperm(tid_tidSorted)
+    end
+    # for each particle, take the maximum order statistic as new metric
+    orderStatMax_tid = maximum(orderStat_tid_mid, dims=2)
+    # sort particles by maximum order statistic
+    tid_orderStatJoint = sortperm(orderStatMax_tid, dims=1) |> vec
+    if verbose
+        println("distances: distance_tid_mid = ") #! debug
+        display(distance_tid_mid) #! debug
+        println("order of distances: orderStat_tid_mid = ") #! debug
+        display(orderStat_tid_mid) #! debug
+        println("max distance per particle: orderStatMax_tid = ") #! debug
+        display(orderStatMax_tid) #! debug
+        println("order of Max rank: orderStatJoint_tid = ") #! debug
+        display(tid_orderStatJoint) #! debug
+    end
+    return tid_orderStatJoint
+end
+
+function testABCParticlesQuantiles(
+        distDataVSim::Function,
+        particle_tid::Vector,
+        dataMetrics,
+        q::Real,
+        constraintsF::Union{Nothing,Function}=nothing;
+        nMetrics::Union{Nothing,Int}=nothing
+    )
+    if isnothing(nMetrics) nMetrics=length(dataMetrics) end
+    distance_tid_mid = getParticleDistancesPerMetric(distDataVSim, particle_tid, dataMetrics; nMetrics)
+    q_mid = [quantile((@view distance_tid_mid[:,mid]), q) for mid in 1:nMetrics]
+    accepted_tid = [all(distance_tid_mid[tid,:].<q_mid) for tid in eachindex(particle_tid)]
+    if isnothing(constraintsF)
+        return accepted_tid
+    end
+    acceptedConstraints_tid = falses(length(particle_tid))
+    for (tid, particle) in enumerate(particle_tid)
+        acceptedConstraints_tid[tid] = all(constraintsF(particle.simResults))
+    end
+    return accepted_tid .&& acceptedConstraints_tid
 end
 
 function testABCParticles(compareDataVSim::Function, particle_tid::Vector, dataMetrics, errorThresholds, constraintsF::Union{Nothing,Function}=nothing)
@@ -90,5 +159,14 @@ end
 function acceptedParams(particle_tid, accepted_tid)
     [particle.paramSet for particle in particle_tid[accepted_tid]]
 end
+
+function rankedParams(particle_tid, tid_rank, number::Union{Int,Nothing}=nothing)
+    if isnothing(number)
+        return [particle.paramSet for particle in particle_tid[tid_rank]]
+    else
+        return [particle.paramSet for particle in particle_tid[tid_rank[1:number]]]
+    end
+end
+
 
 end
